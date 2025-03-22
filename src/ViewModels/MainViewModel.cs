@@ -94,8 +94,8 @@ namespace ScreenRegionProtector.ViewModels
             // Listen for configuration changes
             _configurationService.ConfigurationChanged += OnConfigurationChanged;
 
-            // Initialize data
-            _ = LoadConfigurationAsync();
+            // Removed auto initialization to prevent double loading the configuration
+            // _ = LoadConfigurationAsync();
         }
 
         // Loads the configuration from the service
@@ -681,8 +681,9 @@ namespace ScreenRegionProtector.ViewModels
                     StopMonitoring();
                 }
                 
-                // Clear collections
-                TargetApplications.Clear();
+                // We should NOT clear the TargetApplications collection here
+                // as it will cause settings to be lost when the window is hidden to tray
+                // TargetApplications.Clear();
             }
             
             _isDisposed = true;
