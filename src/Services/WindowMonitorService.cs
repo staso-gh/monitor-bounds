@@ -500,19 +500,12 @@ namespace ScreenRegionProtector.Services
         public static extern IntPtr GetMessageExtraInfo();
 
         // Constants
-        public const uint SWP_NOSIZE = 0x0001;
-        public const uint SWP_NOMOVE = 0x0002;
         public const uint SWP_NOZORDER = 0x0004;
-        public const uint SWP_NOREDRAW = 0x0008;
         public const uint SWP_NOACTIVATE = 0x0010;
-        public const uint SWP_SHOWWINDOW = 0x0040;
         public const uint WM_LBUTTONUP = 0x0202;
-        public const uint WM_SYSCOMMAND = 0x0112;
-        public const uint SC_MOVE = 0xF010;
 
         // Constants for mouse input
         public const int INPUT_MOUSE = 0;
-        public const int MOUSEEVENTF_LEFTDOWN = 0x0002;
         public const int MOUSEEVENTF_LEFTUP = 0x0004;
 
         [StructLayout(LayoutKind.Sequential)]

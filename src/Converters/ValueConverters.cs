@@ -7,184 +7,118 @@ using System.Windows.Input;
 
 namespace ScreenRegionProtector.Converters
 {
-    
+    // Helper for common converter operations
+    internal static class ConverterHelper
+    {
+        public static bool ToBool(object value)
+        {
+            if (value is bool b)
+                return b;
+            return value != null && bool.TryParse(value.ToString(), out bool result) && result;
+        }
+    }
+
     // Converts a boolean value to a Visibility value
-    
     public class BoolToVisibilityConverter : IValueConverter
     {
         public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
         {
-            bool invert = parameter as string == "invert";
-            bool boolValue = false;
-            
-            // Safely handle null values
-            if (value != null)
-            {
-                if (value is bool b)
-                {
-                    boolValue = b;
-                }
-                else if (bool.TryParse(value.ToString(), out bool result))
-                {
-                    boolValue = result;
-                }
-            }
-            
+            bool invert = (parameter as string)?.Trim().Equals("invert", StringComparison.OrdinalIgnoreCase) == true;
+            bool boolValue = ConverterHelper.ToBool(value);
+
             if (invert)
                 boolValue = !boolValue;
-                
+
             return boolValue ? Visibility.Visible : Visibility.Collapsed;
         }
 
         public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
         {
-            bool invert = parameter as string == "invert";
-            bool result = false;
-            
-            if (value != null && value is Visibility visibility)
-            {
-                result = visibility == Visibility.Visible;
-            }
-            
+            bool invert = (parameter as string)?.Trim().Equals("invert", StringComparison.OrdinalIgnoreCase) == true;
+            bool result = (value is Visibility visibility) && (visibility == Visibility.Visible);
+
             if (invert)
                 result = !result;
-                
+
             return result;
         }
     }
 
-    
     // Converts a boolean value to a string value
-    
     public class BoolToStringConverter : IValueConverter
     {
         public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
         {
-            bool boolValue = false;
-            
-            // Safely handle null values
-            if (value != null)
-            {
-                if (value is bool b)
-                {
-                    boolValue = b;
-                }
-                else if (bool.TryParse(value.ToString(), out bool result))
-                {
-                    boolValue = result;
-                }
-            }
-            
+            bool boolValue = ConverterHelper.ToBool(value);
             string[] options = (parameter as string)?.Split(',');
-            
-            if (options != null && options.Length == 2)
-            {
-                return boolValue ? options[0] : options[1];
-            }
-            
+
+            if (options?.Length == 2)
+                return boolValue ? options[0].Trim() : options[1].Trim();
+
             return boolValue.ToString();
         }
 
         public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
         {
             string stringValue = value as string;
-            
-            if (string.IsNullOrEmpty(stringValue))
-            {
+            if (string.IsNullOrWhiteSpace(stringValue))
                 return false;
-            }
-            
+
             string[] options = (parameter as string)?.Split(',');
-            
-            if (options != null && options.Length == 2)
-            {
-                return stringValue == options[0];
-            }
-            
+            if (options?.Length == 2)
+                return stringValue.Trim().Equals(options[0].Trim(), StringComparison.OrdinalIgnoreCase);
+
             return bool.TryParse(stringValue, out bool result) && result;
         }
     }
 
-    
     // Converts a boolean value to a Color value
-    
     public class BoolToColorConverter : IValueConverter
     {
+        private static readonly BrushConverter BrushConverter = new BrushConverter();
+
         public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
         {
-            bool boolValue = false;
-            
-            // Safely handle null values
-            if (value != null)
-            {
-                if (value is bool b)
-                {
-                    boolValue = b;
-                }
-                else if (bool.TryParse(value.ToString(), out bool result))
-                {
-                    boolValue = result;
-                }
-            }
-            
+            bool boolValue = ConverterHelper.ToBool(value);
             string[] options = (parameter as string)?.Split(',');
-            
-            if (options != null && options.Length == 2)
+
+            if (options?.Length == 2)
             {
-                string colorName = boolValue ? options[0] : options[1];
-                
-                // Try to convert the color name to a Color
+                string colorName = boolValue ? options[0].Trim() : options[1].Trim();
                 try
                 {
-                    var colorConverter = new System.Windows.Media.BrushConverter();
-                    var brush = (System.Windows.Media.Brush)colorConverter.ConvertFromString(colorName);
-                    
-                    if (brush is System.Windows.Media.SolidColorBrush solidBrush)
-                    {
+                    if (BrushConverter.ConvertFromString(colorName) is SolidColorBrush solidBrush)
                         return solidBrush.Color;
-                    }
                 }
                 catch
                 {
-                    // Return transparent if conversion fails
                     return Colors.Transparent;
                 }
             }
-            
             return Colors.Transparent;
         }
 
         public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
         {
-            // Not implemented
-            return false;
+            throw new NotImplementedException();
         }
     }
 
+    // Converts a color brush to a darker shade based on a provided factor (e.g., "0.2" for 20% darker)
     public class ColorShadeConverter : IValueConverter
     {
         public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
         {
-            if (value is SolidColorBrush brush && parameter is string shade)
+            if (value is SolidColorBrush brush && parameter is string shade &&
+                double.TryParse(shade, NumberStyles.Any, CultureInfo.InvariantCulture, out double shadeAmount))
             {
-                // Parse the shade parameter (expected format: 0.2 for 20% darker)
-                if (double.TryParse(shade, out double shadeAmount))
-                {
-                    // Get the original color
-                    System.Windows.Media.Color originalColor = brush.Color;
-                    
-                    // Create a darker version of the color
-                    System.Windows.Media.Color darkerColor = System.Windows.Media.Color.FromArgb(
-                        originalColor.A,
-                        (byte)Math.Max(0, originalColor.R - originalColor.R * shadeAmount),
-                        (byte)Math.Max(0, originalColor.G - originalColor.G * shadeAmount),
-                        (byte)Math.Max(0, originalColor.B - originalColor.B * shadeAmount)
-                    );
-                    
-                    return darkerColor;
-                }
+                Color originalColor = brush.Color;
+                byte newR = (byte)Math.Max(0, originalColor.R - originalColor.R * shadeAmount);
+                byte newG = (byte)Math.Max(0, originalColor.G - originalColor.G * shadeAmount);
+                byte newB = (byte)Math.Max(0, originalColor.B - originalColor.B * shadeAmount);
+
+                return Color.FromArgb(originalColor.A, newR, newG, newB);
             }
-            
             return value;
         }
 
@@ -194,9 +128,7 @@ namespace ScreenRegionProtector.Converters
         }
     }
 
-    
-    // Converts toggle button state to either start or stop command
-    
+    // Converts toggle button state to either a start or stop command
     public class ToggleButtonCommandConverter : IMultiValueConverter
     {
         public object Convert(object[] values, Type targetType, object parameter, CultureInfo culture)
@@ -204,23 +136,17 @@ namespace ScreenRegionProtector.Converters
             // Expecting: StartCommand, StopCommand, IsChecked
             if (values.Length < 3)
                 return null;
-            
-            var startCommand = values[0] as ICommand;
-            var stopCommand = values[1] as ICommand;
-            bool isMonitoring = false;
-            
-            if (values[2] is bool monitoringState)
-            {
-                isMonitoring = monitoringState;
-            }
-            
-            // Return the appropriate command based on current state
-            return isMonitoring ? stopCommand : startCommand;
+
+            ICommand startCommand = values[0] as ICommand;
+            ICommand stopCommand = values[1] as ICommand;
+            bool isChecked = ConverterHelper.ToBool(values[2]);
+
+            return isChecked ? stopCommand : startCommand;
         }
-        
+
         public object[] ConvertBack(object value, Type[] targetTypes, object parameter, CultureInfo culture)
         {
             throw new NotImplementedException();
         }
     }
-} 
+}
