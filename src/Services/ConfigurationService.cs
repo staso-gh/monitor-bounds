@@ -32,16 +32,30 @@ namespace ScreenRegionProtector.Services
 
         public ConfigurationService()
         {
+            // Use LocalApplicationData instead of mixing paths
             string appDataPath = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-            string appFolderPath = Path.Combine(appDataPath, "WindowBoundaryGuard");
+            string appFolderPath = Path.Combine(appDataPath, "ScreenRegionProtector");
 
             // Create directory if it doesn't exist
             if (!Directory.Exists(appFolderPath))
             {
-                Directory.CreateDirectory(appFolderPath);
+                try
+                {
+                    Directory.CreateDirectory(appFolderPath);
+                    System.Diagnostics.Debug.WriteLine($"Created configuration directory: {appFolderPath}");
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Failed to create configuration directory: {ex.Message}");
+                    // Fallback to using temp directory
+                    appFolderPath = Path.Combine(Path.GetTempPath(), "ScreenRegionProtector");
+                    Directory.CreateDirectory(appFolderPath);
+                    System.Diagnostics.Debug.WriteLine($"Using fallback configuration directory: {appFolderPath}");
+                }
             }
 
-            _configFilePath = Path.Combine(appFolderPath, "config.json");
+            _configFilePath = Path.Combine(appFolderPath, "settings.json");
+            System.Diagnostics.Debug.WriteLine($"Configuration file path set to: {_configFilePath}");
         }
 
 
@@ -51,70 +65,86 @@ namespace ScreenRegionProtector.Services
         {
             try
             {
-                System.Diagnostics.Debug.WriteLine($"ConfigurationService.LoadConfigurationAsync() - STARTING");
+                System.Diagnostics.Debug.WriteLine($"LoadConfigurationAsync - STARTING");
                 System.Diagnostics.Debug.WriteLine($"Config file path: {_configFilePath}");
+                
+                bool useDefaultConfig = false;
                 
                 // If the config file exists, load it
                 if (File.Exists(_configFilePath))
                 {
                     System.Diagnostics.Debug.WriteLine("Config file exists, loading...");
+                    
                     try
                     {
                         string json = await File.ReadAllTextAsync(_configFilePath);
                         System.Diagnostics.Debug.WriteLine($"Read {json.Length} characters from config file");
                         
-                        // Show a preview of the file for debugging
-                        if (json.Length > 0)
+                        // Check if file is empty or too small to be valid
+                        if (string.IsNullOrWhiteSpace(json) || json.Length < 10)
                         {
-                            int previewLength = Math.Min(100, json.Length);
-                            System.Diagnostics.Debug.WriteLine($"JSON preview: {json.Substring(0, previewLength)}...");
-                        }
-                        
-                        var options = new JsonSerializerOptions
-                        {
-                            WriteIndented = true,
-                            PropertyNameCaseInsensitive = true
-                        };
-                        
-                        var config = JsonSerializer.Deserialize<ConfigurationData>(json, options);
-                        
-                        if (config != null)
-                        {
-                            System.Diagnostics.Debug.WriteLine("Deserialized config successfully");
-                            
-                            // Clear existing applications
-                            TargetApplications.Clear();
-                            
-                            // Create fresh copies of all applications to avoid reference issues
-                            if (config.TargetApplications != null)
-                            {
-                                foreach (var app in config.TargetApplications)
-                                {
-                                    var freshCopy = new ApplicationWindow
-                                    {
-                                        TitlePattern = app.TitlePattern,
-                                        IsActive = app.IsActive,
-                                        RestrictToMonitor = app.RestrictToMonitor
-                                    };
-                                    
-                                    TargetApplications.Add(freshCopy);
-                                    System.Diagnostics.Debug.WriteLine($"Added app from config: '{freshCopy.TitlePattern}', Active={freshCopy.IsActive}, Monitor={freshCopy.RestrictToMonitor}");
-                                }
-                            }
-                            else
-                            {
-                                System.Diagnostics.Debug.WriteLine("Config had null TargetApplications list, using empty list");
-                                TargetApplications = new List<ApplicationWindow>();
-                            }
-                            
-                            StartMonitoringOnStartup = config.StartMonitoringOnStartup;
-                            System.Diagnostics.Debug.WriteLine($"Set StartMonitoringOnStartup = {StartMonitoringOnStartup}");
+                            System.Diagnostics.Debug.WriteLine("Config file exists but is empty or too small. Creating default configuration.");
+                            useDefaultConfig = true;
                         }
                         else
                         {
-                            System.Diagnostics.Debug.WriteLine("Deserialized config was null, using default values");
-                            TargetApplications = new List<ApplicationWindow>();
-                            StartMonitoringOnStartup = false;
+                            // Show a preview of the file for debugging
+                            int previewLength = Math.Min(100, json.Length);
+                            System.Diagnostics.Debug.WriteLine($"JSON preview: {json.Substring(0, previewLength)}...");
+                            
+                            var options = new JsonSerializerOptions
+                            {
+                                WriteIndented = true,
+                                PropertyNameCaseInsensitive = true
+                            };
+                            
+                            var config = JsonSerializer.Deserialize<ConfigurationData>(json, options);
+                            
+                            if (config != null)
+                            {
+                                System.Diagnostics.Debug.WriteLine("Deserialized config successfully");
+                                
+                                // Clear existing applications
+                                TargetApplications.Clear();
+                                
+                                // Create fresh copies of all applications to avoid reference issues
+                                if (config.TargetApplications != null && config.TargetApplications.Count > 0)
+                                {
+                                    foreach (var app in config.TargetApplications)
+                                    {
+                                        // Validate the application before adding it
+                                        if (app != null && !string.IsNullOrWhiteSpace(app.TitlePattern))
+                                        {
+                                            var freshCopy = new ApplicationWindow
+                                            {
+                                                TitlePattern = app.TitlePattern,
+                                                IsActive = app.IsActive,
+                                                RestrictToMonitor = app.RestrictToMonitor
+                                            };
+                                            
+                                            TargetApplications.Add(freshCopy);
+                                            System.Diagnostics.Debug.WriteLine($"Added app from config: '{freshCopy.TitlePattern}', Active={freshCopy.IsActive}, Monitor={freshCopy.RestrictToMonitor}");
+                                        }
+                                        else
+                                        {
+                                            System.Diagnostics.Debug.WriteLine("Skipped invalid application entry in config");
+                                        }
+                                    }
+                                }
+                                else
+                                {
+                                    System.Diagnostics.Debug.WriteLine("Config had null or empty TargetApplications list");
+                                    useDefaultConfig = true;
+                                }
+                                
+                                StartMonitoringOnStartup = config.StartMonitoringOnStartup;
+                                System.Diagnostics.Debug.WriteLine($"Set StartMonitoringOnStartup = {StartMonitoringOnStartup}");
+                            }
+                            else
+                            {
+                                System.Diagnostics.Debug.WriteLine("Deserialized config was null, using default values");
+                                useDefaultConfig = true;
+                            }
                         }
                     }
                     catch (Exception ex)
@@ -124,32 +154,50 @@ namespace ScreenRegionProtector.Services
                         
                         // Create default configuration on error
                         System.Diagnostics.Debug.WriteLine("Using default configuration due to error");
-                        TargetApplications = new List<ApplicationWindow>();
-                        StartMonitoringOnStartup = false;
+                        useDefaultConfig = true;
+                        
+                        // If file is corrupt, rename it for backup and create a new one
+                        try
+                        {
+                            string backupPath = _configFilePath + ".backup." + DateTime.Now.ToString("yyyyMMddHHmmss");
+                            File.Move(_configFilePath, backupPath);
+                            System.Diagnostics.Debug.WriteLine($"Renamed corrupted config file to: {backupPath}");
+                        }
+                        catch (Exception backupEx)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"Failed to backup corrupted config file: {backupEx.Message}");
+                        }
                     }
                 }
                 else
                 {
                     // Create default configuration
                     System.Diagnostics.Debug.WriteLine("Config file doesn't exist, creating default configuration");
+                    useDefaultConfig = true;
+                }
+                
+                // Apply default configuration if needed
+                if (useDefaultConfig)
+                {
                     TargetApplications = new List<ApplicationWindow>();
-                    StartMonitoringOnStartup = false;
+                    StartMonitoringOnStartup = true;
                     
                     // Create default file
                     await SaveConfigurationAsync();
+                    System.Diagnostics.Debug.WriteLine("Created and saved default configuration");
                 }
                 
                 System.Diagnostics.Debug.WriteLine($"Final configuration loaded: {TargetApplications.Count} applications, StartMonitoring={StartMonitoringOnStartup}");
-                System.Diagnostics.Debug.WriteLine($"ConfigurationService.LoadConfigurationAsync() - COMPLETE");
+                System.Diagnostics.Debug.WriteLine($"LoadConfigurationAsync - COMPLETE");
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"ERROR in ConfigurationService.LoadConfigurationAsync: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"ERROR in LoadConfigurationAsync: {ex.Message}");
                 System.Diagnostics.Debug.WriteLine(ex.StackTrace);
                 
                 // Create empty config as fallback
                 TargetApplications = new List<ApplicationWindow>();
-                StartMonitoringOnStartup = false;
+                StartMonitoringOnStartup = true;
             }
         }
 

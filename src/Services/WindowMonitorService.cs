@@ -8,502 +8,255 @@ using System.Timers;
 using ScreenRegionProtector.Models;
 using System.Collections.Concurrent;
 using System.Text;
+using System.Windows.Forms;  // Requires reference to System.Windows.Forms
 
 namespace ScreenRegionProtector.Services
 {
-    
-    //Service for monitoring windows and enforcing monitor restrictions
-    
+    /// <summary>
+    /// A simplified service that monitors specified application windows and forces them to remain within a designated monitor's bounds.
+    /// </summary>
     public class WindowMonitorService : IDisposable
     {
         private readonly List<ApplicationWindow> _targetApplications = new();
-        private System.Timers.Timer _monitorTimer;
-        private System.Timers.Timer _watchdogTimer;
-        private const int POLLING_INTERVAL_MS = 50; // More frequent polling for better responsiveness
-        private const int WATCHDOG_INTERVAL_MS = 5000; // Check every 5 seconds that monitoring is still active
-        private bool _isMonitoring = false;
-        
-        // Use standard Dictionary instead of limited size dictionary
-        private readonly Dictionary<IntPtr, WindowsAPI.RECT> _lastWindowPositions = new Dictionary<IntPtr, WindowsAPI.RECT>();
-        
-        private bool _isDisposed = false;
-        private DateTime _lastMonitorActivity;
-        
-        // Event properties using standard event pattern
-        public event EventHandler<WindowMovedEventArgs> WindowMoved;
-        
+        private readonly System.Timers.Timer _monitorTimer;
+        private readonly Dictionary<IntPtr, NativeMethods.RECT> _lastWindowPositions = new();
+        private bool _disposed = false;
+        private const int POLLING_INTERVAL_MS = 50;
+
         public event EventHandler<WindowRepositionedEventArgs> WindowRepositioned;
+        public event EventHandler<WindowMovedEventArgs> WindowMoved;
 
         public WindowMonitorService()
         {
-            _monitorTimer = new System.Timers.Timer(POLLING_INTERVAL_MS);
-            _monitorTimer.Elapsed += OnMonitorTimerElapsed;
-            _monitorTimer.AutoReset = true;
-            
-            // Set up watchdog timer to ensure monitoring stays active
-            _watchdogTimer = new System.Timers.Timer(WATCHDOG_INTERVAL_MS);
-            _watchdogTimer.Elapsed += OnWatchdogTimerElapsed;
-            _watchdogTimer.AutoReset = true;
-            _watchdogTimer.Start();
-            
-            _lastMonitorActivity = DateTime.Now;
+            _monitorTimer = new System.Timers.Timer(POLLING_INTERVAL_MS)
+            {
+                AutoReset = true
+            };
+            _monitorTimer.Elapsed += MonitorTimerElapsed;
         }
 
-        // Public method to set application minimized state
+        public void AddTargetApplication(ApplicationWindow app)
+        {
+            if (_disposed) return;
+            lock (_targetApplications)
+            {
+                if (!_targetApplications.Contains(app))
+                    _targetApplications.Add(app);
+            }
+        }
+
+        public void RemoveTargetApplication(ApplicationWindow app)
+        {
+            if (_disposed) return;
+            lock (_targetApplications)
+            {
+                _targetApplications.Remove(app);
+            }
+        }
+
+        public void StartMonitoring() 
+        {
+            if (_disposed) return;
+            _monitorTimer.Start();
+        }
+
+        public void StopMonitoring() 
+        {
+            if (_disposed) return;
+            _monitorTimer.Stop();
+            _lastWindowPositions.Clear();
+        }
+
         public void SetDormantMode(bool isDormant)
         {
-            // Just keep basic dormant mode setting without memory optimization
             if (_monitorTimer != null)
             {
                 _monitorTimer.Interval = isDormant ? POLLING_INTERVAL_MS * 2 : POLLING_INTERVAL_MS;
             }
         }
 
-        //Add an application window to be monitored
-        public void AddTargetApplication(ApplicationWindow application)
+        private void MonitorTimerElapsed(object sender, ElapsedEventArgs e)
         {
-            if (_isDisposed) return;
-            
-            lock (_targetApplications)
-            {
-                if (!_targetApplications.Contains(application))
-                {
-                    _targetApplications.Add(application);
-                }
-            }
-        }
-
-
-        //Remove an application window from monitoring
-        public void RemoveTargetApplication(ApplicationWindow application)
-        {
-            if (_isDisposed) return;
-            
-            lock (_targetApplications)
-            {
-                _targetApplications.Remove(application);
-            }
-        }
-
-        //Start monitoring window movements
-        public void StartMonitoring()
-        {
-            if (_isDisposed || _isMonitoring)
-                return;
+            if (_disposed) return;
 
             try
             {
-                // Start the timer to poll window positions
-                _monitorTimer.Start();
-                _isMonitoring = true;
-            }
-            catch (Exception ex)
-            {
-                System.Windows.MessageBox.Show(
-                    $"Failed to start window monitoring: {ex.Message}",
-                    "Monitoring Error",
-                    System.Windows.MessageBoxButton.OK,
-                    System.Windows.MessageBoxImage.Warning);
-            }
-        }
-
-
-        //Stop monitoring window movements
-        public void StopMonitoring()
-        {
-            if (_isDisposed || !_isMonitoring)
-                return;
-
-            _monitorTimer.Stop();
-            _isMonitoring = false;
-            
-            _lastWindowPositions.Clear();
-        }
-
-        // Timer event that polls for window positions
-        private void OnMonitorTimerElapsed(object sender, ElapsedEventArgs e)
-        {
-            if (_isDisposed)
-                return;
-                
-            try
-            {
-                // Record activity time for watchdog
-                _lastMonitorActivity = DateTime.Now;
-                
-                // Create a new collection for window handles
-                List<IntPtr> windowHandles = new List<IntPtr>();
-                
-                // This will hold all our monitor rectangles
-                List<WindowsAPI.RECT> monitorRects = GetAllMonitorRects();
-                System.Diagnostics.Debug.WriteLine($"---------------------- BEGIN MONITOR CYCLE ----------------------");
-                System.Diagnostics.Debug.WriteLine($"Found {monitorRects.Count} monitors");
-                for (int i = 0; i < monitorRects.Count; i++)
-                {
-                    var rect = monitorRects[i];
-                    System.Diagnostics.Debug.WriteLine($"Monitor {i}: Left={rect.Left}, Top={rect.Top}, Right={rect.Right}, Bottom={rect.Bottom}, Size={rect.Width}x{rect.Height}");
-                }
-                
-                // First check what we're monitoring
-                List<ApplicationWindow> activeTargets = new List<ApplicationWindow>();
+                // Create a copy of the current targets for thread safety
+                List<ApplicationWindow> activeTargets;
                 lock (_targetApplications)
                 {
                     activeTargets = _targetApplications
                         .Where(a => a.IsActive && a.RestrictToMonitor.HasValue)
                         .ToList();
-                        
-                    int activeApps = activeTargets.Count;
-                    System.Diagnostics.Debug.WriteLine($"OnMonitorTimerElapsed: Monitoring {activeApps} active applications");
-                    
-                    foreach (var app in activeTargets)
-                    {
-                        System.Diagnostics.Debug.WriteLine($"Monitoring: '{app.TitlePattern}' on monitor {app.RestrictToMonitor}");
-                    }
                 }
-                
-                // Check if we're actually monitoring anything
+
                 if (activeTargets.Count == 0)
-                {
-                    System.Diagnostics.Debug.WriteLine("WARNING: No active applications to monitor. Skipping monitoring cycle.");
                     return;
-                }
- 
-                // Use EnumWindows to find all top-level windows
-                System.Diagnostics.Debug.WriteLine("Enumerating all windows...");
-                WindowsAPI.EnumWindows((hWnd, lParam) => {
-                    if (WindowsAPI.IsWindowVisible(hWnd))
+
+                // Find all visible windows
+                List<IntPtr> windowHandles = new List<IntPtr>();
+                NativeMethods.EnumWindows((hWnd, lParam) => {
+                    if (NativeMethods.IsWindowVisible(hWnd))
                     {
                         string title = GetWindowTitle(hWnd);
-                        if (!string.IsNullOrWhiteSpace(title))
+                        if (!string.IsNullOrWhiteSpace(title) && !ShouldIgnoreSystemWindow(hWnd, title))
                         {
-                            // Add all visible windows with titles for checking
                             windowHandles.Add(hWnd);
-                            System.Diagnostics.Debug.WriteLine($"Found window: Handle={hWnd}, Title='{title}'");
                         }
                     }
-                    return true; // Continue enumeration
+                    return true;
                 }, IntPtr.Zero);
-                
-                System.Diagnostics.Debug.WriteLine($"Found {windowHandles.Count} visible windows with titles");
-                
-                // Check each window - first look for pattern matches, then enforce monitor restrictions
-                int matchedCount = 0;
+
+                // Process each window
                 foreach (var hwnd in windowHandles)
                 {
                     string title = GetWindowTitle(hwnd);
+                    if (string.IsNullOrWhiteSpace(title) || !NativeMethods.IsWindow(hwnd))
+                        continue;
                     
-                    // Check if this window matches any of our target applications
-                    ApplicationWindow matchingApp = null;
-                    
-                    foreach (var app in activeTargets)
-                    {
-                        if (app.Matches(hwnd, title))
-                        {
-                            matchingApp = app;
-                            matchedCount++;
-                            break;
-                        }
-                    }
-                    
-                    // If it's a match, output detailed info for debugging
+                    ApplicationWindow matchingApp = activeTargets.FirstOrDefault(a => a.Matches(hwnd, title));
                     if (matchingApp != null)
                     {
-                        System.Diagnostics.Debug.WriteLine($"MATCH FOUND: Window '{title}' - Pattern: '{matchingApp.TitlePattern}', Target Monitor: {matchingApp.RestrictToMonitor}");
-                        
-                        // Get the window rectangle
-                        WindowsAPI.RECT windowRect = new WindowsAPI.RECT();
-                        if (!WindowsAPI.GetWindowRect(hwnd, out windowRect))
-                        {
-                            System.Diagnostics.Debug.WriteLine($"Failed to get window rectangle for '{title}'");
-                            continue;
-                        }
-                        
-                        System.Diagnostics.Debug.WriteLine($"Window position: Left={windowRect.Left}, Top={windowRect.Top}, Right={windowRect.Right}, Bottom={windowRect.Bottom}, Size={windowRect.Width}x{windowRect.Height}");
-                        
-                        // Check window's current monitor
-                        int currentMonitorIndex = GetMonitorIndexForWindow(windowRect);
-                        System.Diagnostics.Debug.WriteLine($"Window '{title}' is on monitor {currentMonitorIndex}, should be on {matchingApp.RestrictToMonitor}");
-                        
-                        // If on wrong monitor, immediately try to fix
-                        if (currentMonitorIndex != matchingApp.RestrictToMonitor.Value)
-                        {
-                            System.Diagnostics.Debug.WriteLine($"ACTION NEEDED: REPOSITIONING window '{title}' from monitor {currentMonitorIndex} to {matchingApp.RestrictToMonitor.Value}");
-                            
-                            // Get the last known position if available
-                            WindowsAPI.RECT lastRect = new WindowsAPI.RECT();
-                            if (_lastWindowPositions.TryGetValue(hwnd, out var storedRect))
-                            {
-                                lastRect = storedRect;
-                                System.Diagnostics.Debug.WriteLine($"Last known position: Left={lastRect.Left}, Top={lastRect.Top}, Right={lastRect.Right}, Bottom={lastRect.Bottom}");
-                            }
-                            
-                            // Force window back to its correct monitor
-                            ForceWindowToMonitor(hwnd, title, windowRect, lastRect, matchingApp.RestrictToMonitor.Value);
-                        }
-                        else
-                        {
-                            System.Diagnostics.Debug.WriteLine($"Window is already on correct monitor {currentMonitorIndex}");
-                        }
+                        ProcessTargetWindow(hwnd, title, matchingApp);
                     }
-                    
-                    // Always handle movement for all windows we're tracking
-                    HandleWindowMovement(hwnd);
+                    else
+                    {
+                        // For non-target windows, just track movement
+                        HandleWindowMovement(hwnd);
+                    }
                 }
-                
-                System.Diagnostics.Debug.WriteLine($"Total windows matched: {matchedCount} out of {windowHandles.Count}");
-                System.Diagnostics.Debug.WriteLine($"---------------------- END MONITOR CYCLE ----------------------");
-                
-                // Clean up window handles that no longer exist
+
+                // Clean up invalid window handles
                 CleanupInvalidWindowHandles();
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                // Prevent crashes in the monitoring thread
-                System.Diagnostics.Debug.WriteLine($"ERROR in window monitoring: {ex.Message}");
-                System.Diagnostics.Debug.WriteLine($"Stack trace: {ex.StackTrace}");
+                // Suppress exceptions to prevent crashes in the monitoring thread
             }
         }
-        
-        // Gets the window title
-        private string GetWindowTitle(IntPtr hWnd)
+
+        private void ProcessTargetWindow(IntPtr hwnd, string windowTitle, ApplicationWindow matchingApp)
         {
-            StringBuilder titleBuilder = new StringBuilder(256);
-            int length = WindowsAPI.GetWindowTextLength(hWnd);
-            if (length > 0)
-            {
-                WindowsAPI.GetWindowText(hWnd, titleBuilder, length + 1);
-                return titleBuilder.ToString();
-            }
-            return string.Empty;
-        }
-        
-        // Remove window handles that no longer represent valid windows
-        private void CleanupInvalidWindowHandles()
-        {
-            if (_isDisposed) return;
+            if (!NativeMethods.GetWindowRect(hwnd, out NativeMethods.RECT windowRect))
+                return;
+
+            int targetMonitorIndex = matchingApp.RestrictToMonitor.Value;
             
-            List<IntPtr> invalidHandles = new List<IntPtr>();
-            
-            // Find invalid handles
-            foreach (var handle in _lastWindowPositions.Keys)
+            // Use Screen.AllScreens to get monitor information
+            if (targetMonitorIndex < 0 || targetMonitorIndex >= Screen.AllScreens.Length)
+                return;
+
+            var targetScreen = Screen.AllScreens[targetMonitorIndex];
+            var targetBounds = targetScreen.Bounds;
+
+            // Check if window is on the correct monitor
+            bool needsRepositioning = !IsWindowFullyOnMonitor(windowRect, targetBounds);
+
+            if (needsRepositioning)
             {
-                if (!WindowsAPI.IsWindow(handle))
+                NativeMethods.RECT lastRect = new NativeMethods.RECT();
+                if (_lastWindowPositions.TryGetValue(hwnd, out var storedRect))
                 {
-                    invalidHandles.Add(handle);
+                    lastRect = storedRect;
                 }
-            }
-            
-            // Remove invalid handles
-            foreach (var handle in invalidHandles)
-            {
-                _lastWindowPositions.Remove(handle);
-            }
-        }
 
-        //Handle window movement or resize
-        private void HandleWindowMovement(IntPtr windowHandle)
-        {
-            if (_isDisposed)
-                return;
-                
-            // Get window information
-            string windowTitle = GetWindowTitle(windowHandle);
-            
-            // Skip windows without titles
-            if (string.IsNullOrWhiteSpace(windowTitle))
-                return;
-            
-            // Skip system windows that should be ignored
-            if (ShouldIgnoreSystemWindow(windowHandle, windowTitle))
-                return;
-            
-            // Get the window rectangle
-            WindowsAPI.RECT windowRect = new WindowsAPI.RECT();
-            if (!WindowsAPI.GetWindowRect(windowHandle, out windowRect))
-            {
-                return;
-            }
-
-            // Check if window has moved since last check
-            bool hasMoved = false;
-            WindowsAPI.RECT lastRect = new WindowsAPI.RECT();
-            
-            if (_lastWindowPositions.TryGetValue(windowHandle, out var storedRect))
-            {
-                // Copy values to our rect
-                lastRect.Left = storedRect.Left;
-                lastRect.Top = storedRect.Top;
-                lastRect.Right = storedRect.Right;
-                lastRect.Bottom = storedRect.Bottom;
-                
-                // Even a single pixel change counts as movement
-                hasMoved = lastRect.Left != windowRect.Left || 
-                           lastRect.Top != windowRect.Top || 
-                           lastRect.Right != windowRect.Right || 
-                           lastRect.Bottom != windowRect.Bottom;
+                ForceWindowToMonitor(hwnd, windowTitle, windowRect, lastRect, targetMonitorIndex, targetBounds);
             }
             else
             {
-                // First time seeing this window
-                hasMoved = true;
-            }
-            
-            // Update the last known position immediately
-            _lastWindowPositions[windowHandle] = windowRect;
-
-            // Check if this window is one of our target applications
-            ApplicationWindow matchingApp = null;
-            
-            lock (_targetApplications)
-            {
-                matchingApp = _targetApplications
-                    .Where(a => a.IsActive && a.RestrictToMonitor.HasValue)
-                    .FirstOrDefault(a => a.Matches(windowHandle, windowTitle));
-            }
-
-            // If it's a target application with a monitor restriction
-            if (matchingApp != null && matchingApp.RestrictToMonitor.HasValue)
-            {
-                int targetMonitorIndex = matchingApp.RestrictToMonitor.Value;
-                int currentMonitorIndex = GetMonitorIndexForWindow(windowRect);
-                
-                // Log window position info 
-                System.Diagnostics.Debug.WriteLine($"Window '{windowTitle}' - hasMoved: {hasMoved}, Current Monitor: {currentMonitorIndex}, Target Monitor: {targetMonitorIndex}");
-                
-                // Always check window's monitor position, even if it hasn't moved
-                // as the window could be dragged continuously
-                if (currentMonitorIndex != targetMonitorIndex)
-                {
-                    // Force the window to move back to its designated monitor immediately
-                    ForceWindowToMonitor(windowHandle, windowTitle, windowRect, lastRect, targetMonitorIndex);
-                }
-            }
-            
-            // If the window has moved, notify listeners (after potential repositioning)
-            if (hasMoved)
-            {
-                WindowMovedEventArgs movedArgs = new WindowMovedEventArgs
-                {
-                    WindowHandle = windowHandle,
-                    WindowTitle = windowTitle,
-                    WindowRect = windowRect
-                };
-                
-                // Raise window moved event
-                WindowMoved?.Invoke(this, movedArgs);
+                // Track movement even if window is on the correct monitor
+                HandleWindowMovement(hwnd);
             }
         }
 
-        // Method to handle the window repositioning logic
-        private void ForceWindowToMonitor(IntPtr windowHandle, string windowTitle, WindowsAPI.RECT windowRect, 
-                                       WindowsAPI.RECT lastRect, int targetMonitorIndex)
+        private bool IsWindowFullyOnMonitor(NativeMethods.RECT windowRect, System.Drawing.Rectangle monitorBounds)
         {
-            System.Diagnostics.Debug.WriteLine($"ForceWindowToMonitor: Moving '{windowTitle}' to monitor {targetMonitorIndex}");
-            
-            // Always position the window on the correct monitor, regardless of edge conditions
-            int currentMonitorIndex = GetMonitorIndexForWindow(windowRect);
-            
-            // Skip if already on correct monitor (shouldn't happen due to caller check)
-            if (currentMonitorIndex == targetMonitorIndex)
-            {
-                System.Diagnostics.Debug.WriteLine($"Window '{windowTitle}' is already on monitor {targetMonitorIndex}");
+            // Allow a small margin (10 pixels) to avoid constant repositioning for slight offsets
+            int margin = 10;
+            return 
+                windowRect.Left >= monitorBounds.Left - margin && 
+                windowRect.Right <= monitorBounds.Right + margin &&
+                windowRect.Top >= monitorBounds.Top - margin && 
+                windowRect.Bottom <= monitorBounds.Bottom + margin;
+        }
+
+        private void ForceWindowToMonitor(IntPtr hwnd, string windowTitle, NativeMethods.RECT windowRect, 
+                                        NativeMethods.RECT lastRect, int targetMonitorIndex, System.Drawing.Rectangle targetBounds)
+        {
+            if (!NativeMethods.IsWindow(hwnd))
                 return;
-            }
-            
-            System.Diagnostics.Debug.WriteLine($"Moving window from monitor {currentMonitorIndex} to {targetMonitorIndex}");
-            
-            // Get the target monitor rect for repositioning
-            WindowsAPI.RECT targetMonitorRect = GetMonitorRect(targetMonitorIndex);
-            
-            // Calculate new position on target monitor
+
+            int windowWidth = windowRect.Right - windowRect.Left;
+            int windowHeight = windowRect.Bottom - windowRect.Top;
             int newX, newY;
-            int windowWidth = windowRect.Width;
-            int windowHeight = windowRect.Height;
+
+            // Stop any active window drag
+            NativeMethods.StopWindowDrag(hwnd);
             
-            // If this is the first move, center the window on the target monitor
             if (lastRect.Left == 0 && lastRect.Top == 0 && lastRect.Right == 0 && lastRect.Bottom == 0)
             {
-                // Center the window on the target monitor
-                newX = targetMonitorRect.Left + ((targetMonitorRect.Right - targetMonitorRect.Left) - windowWidth) / 2;
-                newY = targetMonitorRect.Top + ((targetMonitorRect.Bottom - targetMonitorRect.Top) - windowHeight) / 2;
-                
-                System.Diagnostics.Debug.WriteLine($"Initial positioning (centered): ({newX},{newY})");
+                // First time seeing this window, center it on the target monitor
+                newX = targetBounds.Left + ((targetBounds.Width - windowWidth) / 2);
+                newY = targetBounds.Top + ((targetBounds.Height - windowHeight) / 2);
             }
             else
             {
-                // Calculate a position that preserves relative position in the target monitor
-                WindowsAPI.RECT sourceMonitorRect = GetMonitorRect(currentMonitorIndex);
-                
-                // Determine relative position within source monitor (0.0 to 1.0)
-                float relativeX = (float)(windowRect.Left - sourceMonitorRect.Left) / (sourceMonitorRect.Right - sourceMonitorRect.Left);
-                float relativeY = (float)(windowRect.Top - sourceMonitorRect.Top) / (sourceMonitorRect.Bottom - sourceMonitorRect.Top);
-                
-                // Apply that relative position to target monitor
-                newX = (int)(targetMonitorRect.Left + (targetMonitorRect.Right - targetMonitorRect.Left) * relativeX);
-                newY = (int)(targetMonitorRect.Top + (targetMonitorRect.Bottom - targetMonitorRect.Top) * relativeY);
-                
-                System.Diagnostics.Debug.WriteLine($"Relative positioning: ({relativeX:F2},{relativeY:F2}) -> ({newX},{newY})");
-                
-                // Ensure the window fits within the target monitor bounds
-                newX = Math.Max(targetMonitorRect.Left, Math.Min(targetMonitorRect.Right - windowWidth, newX));
-                newY = Math.Max(targetMonitorRect.Top, Math.Min(targetMonitorRect.Bottom - windowHeight, newY));
+                // Try to preserve relative position
+                float relativeX = 0.5f;  // Default to center
+                float relativeY = 0.5f;
+
+                // Get current monitor
+                var currentMonitor = GetMonitorFromWindow(hwnd);
+                if (currentMonitor != null)
+                {
+                    // Calculate relative position within current monitor
+                    relativeX = (float)(windowRect.Left - currentMonitor.Bounds.Left) / currentMonitor.Bounds.Width;
+                    relativeY = (float)(windowRect.Top - currentMonitor.Bounds.Top) / currentMonitor.Bounds.Height;
+                    
+                    // Clamp values to valid range
+                    relativeX = Math.Max(0.0f, Math.Min(1.0f, relativeX));
+                    relativeY = Math.Max(0.0f, Math.Min(1.0f, relativeY));
+                }
+
+                // Apply relative position to target monitor
+                newX = (int)(targetBounds.Left + targetBounds.Width * relativeX);
+                newY = (int)(targetBounds.Top + targetBounds.Height * relativeY);
+
+                // Ensure window fits within the target monitor
+                int margin = 5;
+                newX = Math.Max(targetBounds.Left + margin, Math.Min(targetBounds.Right - windowWidth - margin, newX));
+                newY = Math.Max(targetBounds.Top + margin, Math.Min(targetBounds.Bottom - windowHeight - margin, newY));
             }
-            
-            // Release mouse capture to prevent sticky dragging
-            WindowsAPI.ReleaseMouseCapture();
-            
-            // Simulate mouse button up to prevent sticky dragging
-            WindowsAPI.SimulateLeftMouseButtonUp();
-            
-            System.Diagnostics.Debug.WriteLine($"Final window position: ({newX},{newY}) with size {windowWidth}x{windowHeight}");
-            
-            // Attempt repositioning with a retry
+
+            // Try to reposition with up to 3 attempts
             bool success = false;
             for (int attempt = 0; attempt < 3; attempt++)
             {
-                success = WindowsAPI.SetWindowPos(
-                    windowHandle,
+                if (attempt > 0)
+                {
+                    NativeMethods.StopWindowDrag(hwnd);
+                    System.Threading.Thread.Sleep(50 * attempt);
+                }
+
+                success = NativeMethods.SetWindowPos(
+                    hwnd,
                     IntPtr.Zero,
                     newX,
                     newY,
                     windowWidth,
                     windowHeight,
-                    WindowsAPI.SWP_NOACTIVATE | WindowsAPI.SWP_NOZORDER
+                    NativeMethods.SWP_NOACTIVATE | NativeMethods.SWP_NOZORDER
                 );
-                
-                if (success) 
-                {
-                    System.Diagnostics.Debug.WriteLine($"Successfully repositioned window on attempt {attempt + 1}");
+
+                if (success)
                     break;
-                }
-                else
-                {
-                    int error = Marshal.GetLastWin32Error();
-                    System.Diagnostics.Debug.WriteLine($"Failed to reposition window on attempt {attempt + 1}. Error: {error}");
-                    
-                    // Small delay before retry
-                    System.Threading.Thread.Sleep(50);
-                }
             }
-            
+
             if (!success)
-            {
-                System.Diagnostics.Debug.WriteLine("All window repositioning attempts failed");
                 return;
-            }
-            
-            // Create event args for notification
-            WindowRepositionedEventArgs repositionedArgs = new WindowRepositionedEventArgs
-            {
-                WindowHandle = windowHandle,
-                WindowTitle = windowTitle,
-                OldPosition = new System.Windows.Point(windowRect.Left, windowRect.Top),
-                NewPosition = new System.Windows.Point(newX, newY),
-                MonitorIndex = targetMonitorIndex
-            };
-            
-            // Update the last known position
-            WindowsAPI.RECT newRect = new WindowsAPI.RECT
+
+            // Update last position and notify listeners
+            NativeMethods.RECT newRect = new NativeMethods.RECT
             {
                 Left = newX,
                 Top = newY,
@@ -511,55 +264,104 @@ namespace ScreenRegionProtector.Services
                 Bottom = newY + windowHeight
             };
             
-            _lastWindowPositions[windowHandle] = newRect;
-            
-            // Raise the repositioned event
-            WindowRepositioned?.Invoke(this, repositionedArgs);
+            _lastWindowPositions[hwnd] = newRect;
+
+            WindowRepositioned?.Invoke(this, new WindowRepositionedEventArgs
+            {
+                WindowHandle = hwnd,
+                WindowTitle = windowTitle,
+                OldPosition = new System.Windows.Point(windowRect.Left, windowRect.Top),
+                NewPosition = new System.Windows.Point(newX, newY),
+                MonitorIndex = targetMonitorIndex
+            });
         }
 
-        //Determines if a window should be monitored based on the target applications list
-        private bool IsTargetWindow(IntPtr windowHandle, string windowTitle)
+        private void HandleWindowMovement(IntPtr hwnd)
         {
-            if (_isDisposed || string.IsNullOrWhiteSpace(windowTitle))
-                return false;
-                
-            // Skip system windows that should be ignored
-            if (ShouldIgnoreSystemWindow(windowHandle, windowTitle))
-                return false;
-            
-            lock (_targetApplications)
-            {
-                // If no specific targets are defined, monitor all visible windows
-                if (_targetApplications.Count == 0)
-                {
-                    return WindowsAPI.IsWindowVisible(windowHandle);
-                }
+            string windowTitle = GetWindowTitle(hwnd);
 
-                // Otherwise, check if the window matches any of our target applications
-                return _targetApplications
-                    .Where(a => a.IsActive)
-                    .Any(a => a.Matches(windowHandle, windowTitle));
+            if (string.IsNullOrWhiteSpace(windowTitle) || ShouldIgnoreSystemWindow(hwnd, windowTitle))
+                return;
+
+            NativeMethods.RECT windowRect = new NativeMethods.RECT();
+            if (!NativeMethods.GetWindowRect(hwnd, out windowRect))
+                return;
+
+            bool hasMoved = false;
+            NativeMethods.RECT lastRect = new NativeMethods.RECT();
+
+            if (_lastWindowPositions.TryGetValue(hwnd, out var storedRect))
+            {
+                lastRect = storedRect;
+                hasMoved = lastRect.Left != windowRect.Left || 
+                           lastRect.Top != windowRect.Top || 
+                           lastRect.Right != windowRect.Right || 
+                           lastRect.Bottom != windowRect.Bottom;
+            }
+            else
+            {
+                hasMoved = true;
+            }
+
+            // Update the last known position
+            _lastWindowPositions[hwnd] = windowRect;
+
+            // If the window has moved, notify listeners
+            if (hasMoved)
+            {
+                WindowMovedEventArgs movedArgs = new WindowMovedEventArgs
+                {
+                    WindowHandle = hwnd,
+                    WindowTitle = windowTitle,
+                    WindowRect = windowRect
+                };
+                
+                WindowMoved?.Invoke(this, movedArgs);
             }
         }
 
-        // Helper method to determine if a system window should be ignored
+        private void CleanupInvalidWindowHandles()
+        {
+            if (_disposed) return;
+            
+            List<IntPtr> invalidHandles = new List<IntPtr>();
+            
+            foreach (var handle in _lastWindowPositions.Keys)
+            {
+                if (!NativeMethods.IsWindow(handle))
+                {
+                    invalidHandles.Add(handle);
+                }
+            }
+            
+            foreach (var handle in invalidHandles)
+            {
+                _lastWindowPositions.Remove(handle);
+            }
+        }
+
+        private string GetWindowTitle(IntPtr hWnd)
+        {
+            StringBuilder titleBuilder = new StringBuilder(256);
+            int length = NativeMethods.GetWindowTextLength(hWnd);
+            if (length > 0)
+            {
+                NativeMethods.GetWindowText(hWnd, titleBuilder, length + 1);
+                return titleBuilder.ToString();
+            }
+            return string.Empty;
+        }
+
         private bool ShouldIgnoreSystemWindow(IntPtr windowHandle, string windowTitle)
         {
-            // Ignore windows without titles
             if (string.IsNullOrWhiteSpace(windowTitle))
                 return true;
                 
-            // Get window class name
-            string className = WindowsAPI.GetClassNameFromHandle(windowHandle);
+            string className = NativeMethods.GetClassNameFromHandle(windowHandle);
 
-            // Ignore specific system windows by class name - definite exclusions
             string[] systemClassNames = {
-                "Progman",
-                "WorkerW", 
-                "Shell_TrayWnd",
-                "DV2ControlHost",
-                "Windows.UI.Core.CoreWindow",
-                "ApplicationFrameWindow"  // UWP app container
+                "Progman", "WorkerW", "Shell_TrayWnd", "DV2ControlHost",
+                "Windows.UI.Core.CoreWindow", "ApplicationFrameWindow"
             };
             
             foreach (var systemClass in systemClassNames)
@@ -568,13 +370,9 @@ namespace ScreenRegionProtector.Services
                     return true;
             }
             
-            // Ignore specific system windows by title
             string[] systemTitles = {
-                "Program Manager",
-                "Windows Shell Experience Host",
-                "Task View",
-                "Task Switching",
-                "Start"
+                "Program Manager", "Windows Shell Experience Host",
+                "Task View", "Task Switching", "Start"
             };
             
             foreach (var systemTitle in systemTitles)
@@ -586,239 +384,68 @@ namespace ScreenRegionProtector.Services
             return false;
         }
 
-        //Checks if a window is contained within the specified monitor
-
-        private bool IsWindowInMonitor(WindowsAPI.RECT windowRect, int monitorIndex)
+        private Screen GetMonitorFromWindow(IntPtr hwnd)
         {
-            var monitorRect = GetMonitorRect(monitorIndex);
-            
-            return windowRect.Left >= monitorRect.Left && 
-                   windowRect.Right <= monitorRect.Right &&
-                   windowRect.Top >= monitorRect.Top &&
-                   windowRect.Bottom <= monitorRect.Bottom;
-        }
+            if (!NativeMethods.GetWindowRect(hwnd, out NativeMethods.RECT rect))
+                return null;
 
+            // Calculate window center point
+            System.Drawing.Point centerPoint = new System.Drawing.Point(
+                rect.Left + ((rect.Right - rect.Left) / 2),
+                rect.Top + ((rect.Bottom - rect.Top) / 2)
+            );
 
-        //Gets the boundaries of the specified monitor
-
-        private WindowsAPI.RECT GetMonitorRect(int monitorIndex)
-        {
-            List<WindowsAPI.RECT> monitorRects = GetAllMonitorRects();
-            
-            // Return the requested monitor rect if it exists
-            if (monitorIndex >= 0 && monitorIndex < monitorRects.Count)
+            // Find the monitor containing the center point
+            foreach (Screen screen in Screen.AllScreens)
             {
-                return monitorRects[monitorIndex];
+                if (screen.Bounds.Contains(centerPoint))
+                    return screen;
             }
-            
-            return new WindowsAPI.RECT();
-        }
 
-
-        //Gets the index of the monitor that contains most of the window
-
-        private int GetMonitorIndexForWindow(WindowsAPI.RECT windowRect)
-        {
-            // Find the center point of the window
-            int centerX = windowRect.Left + (windowRect.Width / 2);
-            int centerY = windowRect.Top + (windowRect.Height / 2);
-            
-            // Get all monitors
-            List<WindowsAPI.RECT> monitorRects = GetAllMonitorRects();
-            
-            // Find which monitor contains the center point of the window
-            for (int i = 0; i < monitorRects.Count; i++)
-            {
-                var monitorRect = monitorRects[i];
-                if (centerX >= monitorRect.Left && centerX <= monitorRect.Right &&
-                    centerY >= monitorRect.Top && centerY <= monitorRect.Bottom)
-                {
-                    return i;
-                }
-            }
-            
-            // If no monitor contains the center, find the monitor with maximum overlap
-            int bestMonitorIndex = 0;
-            int maxOverlapArea = 0;
-            
-            for (int i = 0; i < monitorRects.Count; i++)
-            {
-                var monitorRect = monitorRects[i];
-                
-                // Calculate the intersection rectangle
-                int overlapLeft = Math.Max(windowRect.Left, monitorRect.Left);
-                int overlapTop = Math.Max(windowRect.Top, monitorRect.Top);
-                int overlapRight = Math.Min(windowRect.Right, monitorRect.Right);
-                int overlapBottom = Math.Min(windowRect.Bottom, monitorRect.Bottom);
-                
-                // Check if there's an actual overlap
-                if (overlapLeft < overlapRight && overlapTop < overlapBottom)
-                {
-                    int overlapArea = (overlapRight - overlapLeft) * (overlapBottom - overlapTop);
-                    if (overlapArea > maxOverlapArea)
-                    {
-                        maxOverlapArea = overlapArea;
-                        bestMonitorIndex = i;
-                    }
-                }
-            }
-            
-            // If we found a monitor with overlap, return it
-            if (maxOverlapArea > 0)
-            {
-                return bestMonitorIndex;
-            }
-            
-            // If there's still no overlap, find the closest monitor based on distance to center
-            int closestMonitorIndex = 0;
+            // If center point is not on any monitor, return the closest one
+            Screen closestScreen = Screen.PrimaryScreen;
             int minDistance = int.MaxValue;
-            
-            for (int i = 0; i < monitorRects.Count; i++)
+
+            foreach (Screen screen in Screen.AllScreens)
             {
-                var monitorRect = monitorRects[i];
-                int monitorCenterX = monitorRect.Left + ((monitorRect.Right - monitorRect.Left) / 2);
-                int monitorCenterY = monitorRect.Top + ((monitorRect.Bottom - monitorRect.Top) / 2);
-                
-                int distanceX = centerX - monitorCenterX;
-                int distanceY = centerY - monitorCenterY;
-                int squareDistance = (distanceX * distanceX) + (distanceY * distanceY);
-                
-                if (squareDistance < minDistance)
+                // Calculate distance to screen center
+                int screenCenterX = screen.Bounds.X + (screen.Bounds.Width / 2);
+                int screenCenterY = screen.Bounds.Y + (screen.Bounds.Height / 2);
+                int distanceX = centerPoint.X - screenCenterX;
+                int distanceY = centerPoint.Y - screenCenterY;
+                int distance = (distanceX * distanceX) + (distanceY * distanceY);
+
+                if (distance < minDistance)
                 {
-                    minDistance = squareDistance;
-                    closestMonitorIndex = i;
+                    minDistance = distance;
+                    closestScreen = screen;
                 }
             }
-            
-            return closestMonitorIndex;
-        }
 
-        private List<WindowsAPI.RECT> GetAllMonitorRects()
-        {
-            // Return a new list each time without caching
-            List<WindowsAPI.RECT> monitorRects = new List<WindowsAPI.RECT>();
-            
-            WindowsAPI.EnumDisplayMonitors(IntPtr.Zero, IntPtr.Zero, 
-                (IntPtr hMonitor, IntPtr hdcMonitor, ref WindowsAPI.RECT lprcMonitor, IntPtr dwData) =>
-                {
-                    monitorRects.Add(lprcMonitor);
-                    return true;
-                }, IntPtr.Zero);
-            
-            return monitorRects;
-        }
-
-        //Determines if a window is at an edge that connects to another monitor
-
-        private bool IsWindowAtEdgeConnectingToOtherMonitor(WindowsAPI.RECT windowRect, int targetMonitorIndex, List<WindowsAPI.RECT> allMonitorRects)
-        {
-            // If we don't have a valid target monitor rect, return false
-            if (targetMonitorIndex < 0 || targetMonitorIndex >= allMonitorRects.Count)
-                return false;
-                
-            WindowsAPI.RECT targetMonitorRect = allMonitorRects[targetMonitorIndex];
-            
-            // Window center coordinates
-            int windowCenterX = windowRect.Left + (windowRect.Width / 2);
-            int windowCenterY = windowRect.Top + (windowRect.Height / 2);
-            
-            // Check each edge of the target monitor to see if the window is near it
-            foreach (var otherMonitorRect in allMonitorRects)
-            {
-                // Skip the target monitor
-                if (otherMonitorRect.Left == targetMonitorRect.Left && 
-                    otherMonitorRect.Top == targetMonitorRect.Top &&
-                    otherMonitorRect.Right == targetMonitorRect.Right && 
-                    otherMonitorRect.Bottom == targetMonitorRect.Bottom)
-                    continue;
-                
-                // Check if the monitors are adjacent
-                bool adjacentLeft = targetMonitorRect.Left == otherMonitorRect.Right;
-                bool adjacentRight = targetMonitorRect.Right == otherMonitorRect.Left;
-                bool adjacentTop = targetMonitorRect.Top == otherMonitorRect.Bottom;
-                bool adjacentBottom = targetMonitorRect.Bottom == otherMonitorRect.Top;
-                
-                // If the monitors are adjacent, check if the window is at that edge
-                if (adjacentLeft && Math.Abs(windowRect.Left - targetMonitorRect.Left) < 20)
-                    return true;
-                if (adjacentRight && Math.Abs(windowRect.Right - targetMonitorRect.Right) < 20)
-                    return true;
-                if (adjacentTop && Math.Abs(windowRect.Top - targetMonitorRect.Top) < 20)
-                    return true;
-                if (adjacentBottom && Math.Abs(windowRect.Bottom - targetMonitorRect.Bottom) < 20)
-                    return true;
-                
-                if (adjacentLeft || adjacentRight || adjacentTop || adjacentBottom)
-                    return true;
-            }
-            
-            return false;
-        }
-
-        // Watchdog timer to ensure monitoring stays active
-        private void OnWatchdogTimerElapsed(object sender, ElapsedEventArgs e)
-        {
-            if (_isDisposed) return;
-            
-            // If monitoring is supposed to be active but no activity for a while
-            if (_isMonitoring && (DateTime.Now - _lastMonitorActivity).TotalSeconds > 10)
-            {
-                System.Diagnostics.Debug.WriteLine("Watchdog: Monitoring seems to have stalled, restarting monitor timer");
-                
-                // Try to restart the timer
-                try
-                {
-                    _monitorTimer.Stop();
-                    _monitorTimer.Start();
-                    _lastMonitorActivity = DateTime.Now;
-                }
-                catch (Exception ex)
-                {
-                    System.Diagnostics.Debug.WriteLine($"Watchdog: Error restarting monitoring: {ex.Message}");
-                }
-            }
+            return closestScreen;
         }
 
         public void Dispose()
         {
-            if (_isDisposed)
+            if (_disposed)
                 return;
-
-            _isDisposed = true;
-            
-            // Stop monitoring
-            if (_isMonitoring)
-            {
-                _monitorTimer.Stop();
-                _isMonitoring = false;
-            }
-            
-            // Dispose timers
-            _monitorTimer.Elapsed -= OnMonitorTimerElapsed;
+                
+            _disposed = true;
+            _monitorTimer.Stop();
+            _monitorTimer.Elapsed -= MonitorTimerElapsed;
             _monitorTimer.Dispose();
-            
-            // Dispose watchdog timer
-            if (_watchdogTimer != null)
-            {
-                _watchdogTimer.Elapsed -= OnWatchdogTimerElapsed;
-                _watchdogTimer.Stop();
-                _watchdogTimer.Dispose();
-            }
-            
-            // Clear collections
             _lastWindowPositions.Clear();
             _targetApplications.Clear();
         }
     }
 
-    // Standard event args classes without pooling
     public class WindowMovedEventArgs : EventArgs
     {
         public IntPtr WindowHandle { get; set; }
         public string WindowTitle { get; set; }
-        public WindowsAPI.RECT WindowRect { get; set; }
+        public NativeMethods.RECT WindowRect { get; set; }
     }
-    
+
     public class WindowRepositionedEventArgs : EventArgs
     {
         public IntPtr WindowHandle { get; set; }
@@ -826,5 +453,126 @@ namespace ScreenRegionProtector.Services
         public System.Windows.Point OldPosition { get; set; }
         public System.Windows.Point NewPosition { get; set; }
         public int MonitorIndex { get; set; }
+    }
+
+    /// <summary>
+    /// Native methods for Windows API calls
+    /// </summary>
+    public static class NativeMethods
+    {
+        public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+
+        [DllImport("user32.dll")]
+        public static extern bool EnumWindows(EnumWindowsProc enumProc, IntPtr lParam);
+
+        [DllImport("user32.dll")]
+        public static extern bool IsWindowVisible(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
+        public static extern bool IsWindow(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
+        public static extern int GetWindowTextLength(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
+        public static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
+
+        [DllImport("user32.dll")]
+        public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+
+        [DllImport("user32.dll")]
+        public static extern bool SetWindowPos(
+            IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+
+        [DllImport("user32.dll")]
+        public static extern int SendMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
+
+        [DllImport("user32.dll")]
+        public static extern bool ReleaseCapture();
+
+        [DllImport("user32.dll")]
+        public static extern int GetClassName(IntPtr hWnd, StringBuilder lpClassName, int nMaxCount);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        public static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
+
+        [DllImport("user32.dll")]
+        public static extern IntPtr GetMessageExtraInfo();
+
+        // Constants
+        public const uint SWP_NOSIZE = 0x0001;
+        public const uint SWP_NOMOVE = 0x0002;
+        public const uint SWP_NOZORDER = 0x0004;
+        public const uint SWP_NOREDRAW = 0x0008;
+        public const uint SWP_NOACTIVATE = 0x0010;
+        public const uint SWP_SHOWWINDOW = 0x0040;
+        public const uint WM_LBUTTONUP = 0x0202;
+        public const uint WM_SYSCOMMAND = 0x0112;
+        public const uint SC_MOVE = 0xF010;
+
+        // Constants for mouse input
+        public const int INPUT_MOUSE = 0;
+        public const int MOUSEEVENTF_LEFTDOWN = 0x0002;
+        public const int MOUSEEVENTF_LEFTUP = 0x0004;
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct RECT
+        {
+            public int Left;
+            public int Top;
+            public int Right;
+            public int Bottom;
+
+            public int Width => Right - Left;
+            public int Height => Bottom - Top;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct INPUT
+        {
+            public int type;
+            public MOUSEINPUT mi;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct MOUSEINPUT
+        {
+            public int dx;
+            public int dy;
+            public int mouseData;
+            public int dwFlags;
+            public int time;
+            public IntPtr dwExtraInfo;
+        }
+
+        public static string GetClassNameFromHandle(IntPtr hWnd)
+        {
+            StringBuilder className = new StringBuilder(256);
+            GetClassName(hWnd, className, className.Capacity);
+            return className.ToString();
+        }
+
+        public static void StopWindowDrag(IntPtr hWnd)
+        {
+            ReleaseCapture();
+            SendMessage(hWnd, WM_LBUTTONUP, IntPtr.Zero, IntPtr.Zero);
+            SimulateMouseLeftButtonUp(); // Also simulate the physical mouse up event
+        }
+
+        public static void SimulateMouseLeftButtonUp()
+        {
+            // Create an INPUT structure for mouse up
+            INPUT[] inputs = new INPUT[1];
+            inputs[0].type = INPUT_MOUSE;
+            inputs[0].mi.dx = 0;
+            inputs[0].mi.dy = 0;
+            inputs[0].mi.mouseData = 0;
+            inputs[0].mi.dwFlags = MOUSEEVENTF_LEFTUP;
+            inputs[0].mi.time = 0;
+            inputs[0].mi.dwExtraInfo = GetMessageExtraInfo();
+            
+            // Send the input
+            SendInput(1, inputs, Marshal.SizeOf(typeof(INPUT)));
+        }
     }
 } 

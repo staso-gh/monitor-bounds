@@ -81,9 +81,11 @@ public partial class MainWindow : Window, IDisposable
             _isDarkTheme = _themeManager?.IsDarkTheme ?? false;
         }
 
-        // Initialize services last
+        // Initialize services before creating ViewModel
         _configurationService = new ConfigurationService();
         _windowMonitorService = new WindowMonitorService();
+        
+        // Create and initialize ViewModel
         _viewModel = new MainViewModel(_windowMonitorService, _configurationService);
         
         // Track monitoring state changes
@@ -91,6 +93,9 @@ public partial class MainWindow : Window, IDisposable
 
         // Set the DataContext to the ViewModel
         DataContext = _viewModel;
+
+        // Load configuration
+        LoadConfiguration();
 
         if (System.Windows.Application.Current is App appInstance)
         {
@@ -108,7 +113,18 @@ public partial class MainWindow : Window, IDisposable
                 ApplyTheme(_isDarkTheme);
                 
                 // Schedule another theme application after layout is complete to ensure it's applied correctly
-                _loadedHandler = (s, e) => ApplyTheme(_themeManager.IsDarkTheme);
+                _loadedHandler = (s, e) => {
+                    ApplyTheme(_themeManager.IsDarkTheme);
+                    
+                    // Also ensure monitoring state is correctly applied after load
+                    if (_viewModel.IsMonitoring)
+                    {
+                        // Delay to ensure UI is fully loaded first
+                        Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() => {
+                            UpdateMonitoringToggleButton();
+                        }));
+                    }
+                };
                 this.Loaded += _loadedHandler;
                 
                 // Subscribe to theme changes
@@ -609,24 +625,51 @@ public partial class MainWindow : Window, IDisposable
         }
     }
     
-    // Helper method to save configuration
+    // Add a dedicated method to load configuration
+    private async void LoadConfiguration()
+    {
+        try
+        {
+            Debug.WriteLine("MainWindow: Loading configuration");
+            
+            // Initialize and load configuration
+            await _viewModel.LoadConfigurationAsync();
+            
+            // Once configuration is loaded, update the UI to match
+            UpdateMonitoringToggleButton();
+            
+            Debug.WriteLine($"MainWindow: Configuration loaded. Monitoring state: {_viewModel.IsMonitoring}");
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"Failed to load configuration: {ex.Message}");
+            MessageBox.Show(
+                $"Failed to load application settings: {ex.Message}",
+                "Configuration Error",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+        }
+    }
+
+    // Improve the save configuration method
     private async void SaveConfiguration()
     {
         try
         {
-            // Access SaveConfigurationAsync through reflection since it's private
-            var method = _viewModel.GetType().GetMethod("SaveConfigurationAsync", 
-                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            Debug.WriteLine("MainWindow: Saving configuration");
             
-            if (method != null)
-            {
-                System.Diagnostics.Debug.WriteLine("Saving configuration");
-                await (Task)method.Invoke(_viewModel, null);
-            }
+            await _viewModel.SaveConfigurationAsync();
+            
+            Debug.WriteLine("MainWindow: Configuration saved successfully");
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"Error saving configuration: {ex.Message}");
+            Debug.WriteLine($"Failed to save configuration: {ex.Message}");
+            MessageBox.Show(
+                $"Failed to save settings: {ex.Message}",
+                "Save Error",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
         }
     }
     

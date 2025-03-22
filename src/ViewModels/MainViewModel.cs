@@ -555,118 +555,104 @@ namespace ScreenRegionProtector.ViewModels
         // Toggle the active state of an application
         public void ToggleActiveState(ApplicationWindow app)
         {
-            if (_isDisposed || app == null) 
+            if (app == null || _isDisposed)
                 return;
-                
-            try
-            {
-                // Toggle the active state
-                app.IsActive = !app.IsActive;
-                
-                // Save the configuration
-                _ = SaveConfigurationAsync();
-                
-                // Notify UI about the change
-                OnPropertyChanged(nameof(TargetApplications));
-            }
-            catch (Exception ex)
-            {
-                System.Windows.MessageBox.Show(
-                    $"Failed to toggle active state: {ex.Message}",
-                    "Error",
-                    System.Windows.MessageBoxButton.OK,
-                    System.Windows.MessageBoxImage.Error);
-            }
-        }
 
-        // Saves the current configuration
-        private async Task SaveConfigurationAsync()
-        {
-            if (_isDisposed) return;
+            System.Diagnostics.Debug.WriteLine($"Toggling active state for '{app.TitlePattern}' from {app.IsActive} to {!app.IsActive}");
             
             try
             {
-                System.Diagnostics.Debug.WriteLine("===== SaveConfigurationAsync - STARTING =====");
-                System.Diagnostics.Debug.WriteLine($"ViewModel has {TargetApplications.Count} applications");
-                System.Diagnostics.Debug.WriteLine($"ConfigService has {_configurationService.TargetApplications.Count} applications before save");
+                // Toggle application active state
+                app.IsActive = !app.IsActive;
                 
-                // Check if config file exists before we start
-                string configFilePath = GetConfigFilePath();
-                bool fileExistsBefore = File.Exists(configFilePath);
-                string contentBefore = string.Empty;
-                if (fileExistsBefore)
+                // If active, add to monitor service; if inactive, remove from monitor service
+                if (app.IsActive)
                 {
-                    try
-                    {
-                        contentBefore = await File.ReadAllTextAsync(configFilePath);
-                        System.Diagnostics.Debug.WriteLine($"CONFIG FILE BEFORE: Exists={fileExistsBefore}, Size={contentBefore.Length}");
-                        System.Diagnostics.Debug.WriteLine($"Content preview: {contentBefore.Substring(0, Math.Min(contentBefore.Length, 100))}...");
-                    }
-                    catch (Exception ex)
-                    {
-                        System.Diagnostics.Debug.WriteLine($"Failed to read config file before save: {ex.Message}");
-                    }
+                    _windowMonitorService.AddTargetApplication(app);
+                    System.Diagnostics.Debug.WriteLine($"Added app to window monitor: '{app.TitlePattern}'");
+                }
+                else
+                {
+                    _windowMonitorService.RemoveTargetApplication(app);
+                    System.Diagnostics.Debug.WriteLine($"Removed app from window monitor: '{app.TitlePattern}'");
                 }
                 
-                // Update the configuration service's collection with our current data
-                _configurationService.TargetApplications.Clear();
-                foreach (var app in TargetApplications)
+                // Save the configuration change immediately
+                _ = Task.Run(async () => 
                 {
-                    // Create clean copies for saving
-                    var appCopy = new ApplicationWindow
-                    {
-                        TitlePattern = app.TitlePattern,
-                        IsActive = app.IsActive,
-                        RestrictToMonitor = app.RestrictToMonitor
-                    };
-                    _configurationService.TargetApplications.Add(appCopy);
-                }
+                    await SaveConfigurationAsync();
+                    System.Diagnostics.Debug.WriteLine($"Saved configuration after toggling active state");
+                });
                 
-                // Set startup monitoring state
-                _configurationService.StartMonitoringOnStartup = IsMonitoring;
-                
-                // Save using standard method
-                await _configurationService.SaveConfigurationAsync();
-                System.Diagnostics.Debug.WriteLine("Configuration saved to disk");
-                
-                // Check if file was actually changed
-                bool fileExistsAfter = File.Exists(configFilePath);
-                string contentAfter = string.Empty;
-                if (fileExistsAfter)
-                {
-                    try
-                    {
-                        contentAfter = await File.ReadAllTextAsync(configFilePath);
-                        System.Diagnostics.Debug.WriteLine($"CONFIG FILE AFTER: Exists={fileExistsAfter}, Size={contentAfter.Length}");
-                        System.Diagnostics.Debug.WriteLine($"Content preview: {contentAfter.Substring(0, Math.Min(contentAfter.Length, 100))}...");
-                        System.Diagnostics.Debug.WriteLine($"Content changed: {contentBefore != contentAfter}");
-                    }
-                    catch (Exception ex)
-                    {
-                        System.Diagnostics.Debug.WriteLine($"Failed to read config file after save: {ex.Message}");
-                    }
-                }
-                
-                // Notify the UI of changes
-                OnPropertyChanged(nameof(TargetApplications));
-                OnPropertyChanged(nameof(IsMonitoring));
-                
-                // Force command availability refresh
+                // Update command availability
                 CommandManager.InvalidateRequerySuggested();
-                
-                System.Diagnostics.Debug.WriteLine("===== SaveConfigurationAsync - COMPLETE =====");
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"ERROR in SaveConfigurationAsync: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"Error toggling active state: {ex.Message}");
+                MessageBox.Show(
+                    $"Failed to update application state: {ex.Message}",
+                    "Error",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+            }
+        }
+
+        // Saves the current configuration to the service
+        public async Task SaveConfigurationAsync()
+        {
+            if (_isDisposed)
+            {
+                System.Diagnostics.Debug.WriteLine("Cannot save configuration - ViewModel is disposed");
+                return;
+            }
+            
+            try
+            {
+                System.Diagnostics.Debug.WriteLine("SaveConfigurationAsync - STARTING");
+                System.Diagnostics.Debug.WriteLine($"Saving {TargetApplications.Count} applications");
+                
+                foreach (var app in TargetApplications)
+                {
+                    System.Diagnostics.Debug.WriteLine($"App to save: '{app.TitlePattern}', Active={app.IsActive}, Monitor={app.RestrictToMonitor}");
+                }
+                
+                // Use the direct save method to ensure all applications are saved correctly
+                await _configurationService.SaveConfigurationDirectAsync(
+                    TargetApplications, 
+                    _isMonitoring // Save current monitoring state as StartMonitoringOnStartup
+                );
+                
+                System.Diagnostics.Debug.WriteLine($"Configuration saved successfully with StartMonitoringOnStartup={_isMonitoring}");
+                
+                // Verify that settings were saved correctly
+                string configPath = GetConfigFilePath();
+                if (File.Exists(configPath))
+                {
+                    long fileSize = new FileInfo(configPath).Length;
+                    System.Diagnostics.Debug.WriteLine($"Verified config file exists: {configPath}, Size: {fileSize} bytes");
+                    
+                    if (fileSize <= 10)
+                    {
+                        System.Diagnostics.Debug.WriteLine("WARNING: Config file exists but appears to be empty or very small");
+                    }
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine($"WARNING: Config file does not exist after save: {configPath}");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"ERROR saving configuration: {ex.Message}");
                 System.Diagnostics.Debug.WriteLine(ex.StackTrace);
                 
-                // Show error to user so they know what happened
-                System.Windows.MessageBox.Show(
+                // Show error to user
+                MessageBox.Show(
                     $"Failed to save configuration: {ex.Message}",
-                    "Error Saving Configuration",
-                    System.Windows.MessageBoxButton.OK,
-                    System.Windows.MessageBoxImage.Error);
+                    "Save Error",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
             }
         }
 
