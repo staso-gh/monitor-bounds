@@ -37,7 +37,6 @@ public partial class MainWindow : Window, IDisposable
     private bool _isDisposed;
     
     // Store event handlers as fields so they can be unsubscribed
-    private EventHandler<bool> _appActiveChangedHandler;
     private EventHandler<bool> _themeChangedHandler;
     private MouseButtonEventHandler _mouseLeftButtonDownHandler;
     private RoutedEventHandler _loadedHandler;
@@ -116,10 +115,6 @@ public partial class MainWindow : Window, IDisposable
                 _themeChangedHandler = ThemeManager_ThemeChanged;
                 _themeManager.ThemeChanged += _themeChangedHandler;
             }
-
-            // Handle application active state changes
-            _appActiveChangedHandler = OnAppActiveChanged;
-            appInstance.ActiveChanged += _appActiveChangedHandler;
         }
         
         // Add mouse event handlers for window dragging
@@ -263,8 +258,22 @@ public partial class MainWindow : Window, IDisposable
         
         // Update toggle button for monitoring
         UpdateMonitoringToggleButton();
+        
+        // Update the theme toggle button icon
+        UpdateThemeToggleIcon(isDarkTheme);
     }
 
+    // Update the theme toggle icon based on current theme
+    private void UpdateThemeToggleIcon(bool isDarkTheme)
+    {
+        // Find the theme icon path
+        if (ThemeIconPath != null)
+        {
+            // In dark theme mode, use a light icon, in light theme mode, use a dark icon
+            ThemeIconPath.Fill = new SolidColorBrush(isDarkTheme ? Colors.White : Colors.Black);
+        }
+    }
+    
     // Method to update the monitoring toggle button
     private void UpdateMonitoringToggleButton()
     {
@@ -522,37 +531,171 @@ public partial class MainWindow : Window, IDisposable
     
     private void MonitoringToggleButton_Click(object sender, RoutedEventArgs e)
     {
-        // Get the current toggle state
+        // Get the toggle button
         var toggleButton = sender as System.Windows.Controls.Primitives.ToggleButton;
-        bool isChecked = toggleButton?.IsChecked ?? false;
+        if (toggleButton == null) return;
         
-        // Toggle the active state for all applications
-        foreach (var app in _viewModel.TargetApplications)
-        {
-            app.IsActive = isChecked;
-        }
+        // Get the current pressed state
+        bool isChecked = toggleButton.IsChecked ?? false;
         
-        // Execute the appropriate command based on the new toggle state
-        if (isChecked && !_viewModel.IsMonitoring)
+        System.Diagnostics.Debug.WriteLine($"==== TOGGLE BUTTON CLICKED - User wants monitoring: {isChecked} ====");
+        
+        try
         {
-            _viewModel.StartMonitoringCommand.Execute(null);
+            // Determine what operation to perform based on current monitoring state
+            if (!_viewModel.IsMonitoring && isChecked)
+            {
+                // User wants to START monitoring
+                System.Diagnostics.Debug.WriteLine("Starting monitoring...");
+                
+                // Check if we have valid applications to monitor
+                bool hasValidTarget = _viewModel.TargetApplications.Any(app => app.RestrictToMonitor.HasValue);
+                if (!hasValidTarget)
+                {
+                    MessageBox.Show(
+                        "There are no valid applications configured for monitoring.\nPlease add at least one application and assign it to a monitor.",
+                        "No Applications",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Warning);
+                    
+                    // Reset toggle button state since we're not starting monitoring
+                    toggleButton.IsChecked = false;
+                    return;
+                }
+                
+                // Make sure all apps with monitor restrictions are active
+                foreach (var app in _viewModel.TargetApplications)
+                {
+                    if (app.RestrictToMonitor.HasValue)
+                    {
+                        app.IsActive = true;
+                    }
+                }
+                
+                // Start monitoring
+                _viewModel.StartMonitoringCommand.Execute(null);
+            }
+            else if (_viewModel.IsMonitoring && !isChecked)
+            {
+                // User wants to STOP monitoring
+                System.Diagnostics.Debug.WriteLine("Stopping monitoring...");
+                _viewModel.StopMonitoringCommand.Execute(null);
+            }
+            
+            // Refresh DataGrid to show changes
+            if (ApplicationsDataGrid != null)
+            {
+                ApplicationsDataGrid.Items.Refresh();
+            }
+            
+            // Force configuration save
+            SaveConfiguration();
+            
+            // Ensure button state matches the actual monitoring state
+            toggleButton.IsChecked = _viewModel.IsMonitoring;
+            System.Diagnostics.Debug.WriteLine($"Final state: Monitoring={_viewModel.IsMonitoring}, Button={toggleButton.IsChecked}");
         }
-        else if (!isChecked && _viewModel.IsMonitoring)
+        catch (Exception ex)
         {
-            _viewModel.StopMonitoringCommand.Execute(null);
-        }
-
-        // Ensure the toggle button state matches the ViewModel
-        if (toggleButton != null && toggleButton.IsChecked != _viewModel.IsMonitoring)
-        {
+            System.Diagnostics.Debug.WriteLine($"ERROR: {ex.Message}");
+            MessageBox.Show(
+                $"An error occurred: {ex.Message}",
+                "Error",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+                
+            // Reset toggle button state to match the actual monitoring state
             toggleButton.IsChecked = _viewModel.IsMonitoring;
         }
-        
-        // Update the tray menu state to match
-        if (System.Windows.Application.Current is App appInstance)
+    }
+    
+    // Helper method to save configuration
+    private async void SaveConfiguration()
+    {
+        try
         {
-            // Set the app's active state to match our toggle button
-            appInstance.UpdateTrayMenuActive(isChecked);
+            // Access SaveConfigurationAsync through reflection since it's private
+            var method = _viewModel.GetType().GetMethod("SaveConfigurationAsync", 
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            
+            if (method != null)
+            {
+                System.Diagnostics.Debug.WriteLine("Saving configuration");
+                await (Task)method.Invoke(_viewModel, null);
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Error saving configuration: {ex.Message}");
+        }
+    }
+    
+    private void ThemeToggleButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_themeManager != null)
+        {
+            // Toggle the theme
+            _themeManager.ToggleTheme();
+            
+            // Theme application will happen automatically through the ThemeChanged event
+        }
+    }
+    
+    private void ApplicationsDataGrid_MouseDown(object sender, MouseButtonEventArgs e)
+    {
+        // Clear selection when clicking on empty space
+        var hitTestResult = VisualTreeHelper.HitTest(ApplicationsDataGrid, e.GetPosition(ApplicationsDataGrid));
+        
+        if (hitTestResult != null)
+        {
+            DependencyObject obj = hitTestResult.VisualHit;
+            // Navigate up the visual tree to find a DataGridRow or header
+            bool foundElement = false;
+            while (obj != null && !foundElement)
+            {
+                if (obj is System.Windows.Controls.DataGridRow || 
+                    obj is System.Windows.Controls.DataGridCell || 
+                    obj is System.Windows.Controls.Primitives.DataGridColumnHeader)
+                {
+                    foundElement = true;
+                    break;
+                }
+                obj = VisualTreeHelper.GetParent(obj);
+            }
+            
+            // If we didn't find a row or header, then we clicked on empty space
+            if (!foundElement)
+            {
+                ApplicationsDataGrid.UnselectAll();
+                e.Handled = true;
+            }
+        }
+    }
+    
+    private void ApplicationsDataGrid_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+    {
+        // Handle double-click to edit
+        if (_viewModel.SelectedApplication != null && _viewModel.EditApplicationCommand.CanExecute(null))
+        {
+            // Check if we clicked on a row and not a header
+            var hitTestResult = VisualTreeHelper.HitTest(ApplicationsDataGrid, e.GetPosition(ApplicationsDataGrid));
+            
+            if (hitTestResult != null)
+            {
+                DependencyObject obj = hitTestResult.VisualHit;
+                // Navigate up the visual tree to find a DataGridRow
+                while (obj != null && !(obj is System.Windows.Controls.DataGridRow))
+                {
+                    obj = VisualTreeHelper.GetParent(obj);
+                }
+                
+                // If we found a row, edit the selected application
+                if (obj is System.Windows.Controls.DataGridRow)
+                {
+                    _viewModel.EditApplicationCommand.Execute(null);
+                    e.Handled = true;
+                }
+            }
         }
     }
     
@@ -572,7 +715,7 @@ public partial class MainWindow : Window, IDisposable
     
     private void OnAppActiveChanged(object sender, bool isActive)
     {
-        SetMonitoring(isActive);
+        // We don't need this anymore since we removed the active toggle from the tray
     }
 
     // Dispose method to clean up resources
@@ -604,11 +747,6 @@ public partial class MainWindow : Window, IDisposable
             if (_themeManager != null && _themeChangedHandler != null)
             {
                 _themeManager.ThemeChanged -= _themeChangedHandler;
-            }
-            
-            if (System.Windows.Application.Current is App appInstance && _appActiveChangedHandler != null)
-            {
-                appInstance.ActiveChanged -= _appActiveChangedHandler;
             }
             
             // Unsubscribe window event handlers
@@ -654,7 +792,6 @@ public partial class MainWindow : Window, IDisposable
             }
             
             // Clear event handler references
-            _appActiveChangedHandler = null;
             _themeChangedHandler = null;
             _mouseLeftButtonDownHandler = null;
             _loadedHandler = null;

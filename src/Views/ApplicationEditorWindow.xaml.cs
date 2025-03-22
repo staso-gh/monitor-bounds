@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Forms;
+using System.Windows.Media;
 using System.Drawing;
 using System.Runtime.InteropServices;
 using ScreenRegionProtector.Models;
@@ -17,17 +18,25 @@ namespace ScreenRegionProtector.Views
 
 
         // Gets the edited application
-
-        public ApplicationWindow Application => _application;
-
-
-        // Gets whether the dialog was confirmed
-
-        public new bool DialogResult { get; private set; }
+        public ApplicationWindow Application 
+        {
+            get
+            {
+                // Return a fresh copy to avoid any binding/reference issues
+                if (_application == null) return null;
+                
+                return new ApplicationWindow
+                {
+                    TitlePattern = _application.TitlePattern,
+                    IsActive = _application.IsActive,
+                    RestrictToMonitor = _application.RestrictToMonitor,
+                    Handle = _application.Handle
+                };
+            }
+        }
 
 
         // Creates a new instance of the ApplicationEditorWindow for editing an existing application
-
         public ApplicationEditorWindow(ApplicationWindow application)
         {
             InitializeComponent();
@@ -113,12 +122,15 @@ namespace ScreenRegionProtector.Views
 
 
         // Handles the OK button click
-
         private void OkButton_Click(object sender, RoutedEventArgs e)
         {
+            System.Diagnostics.Debug.WriteLine("===== ApplicationEditorWindow.OkButton_Click - STARTING =====");
+            System.Diagnostics.Debug.WriteLine($"Application before validation: Title='{_application.TitlePattern}', Active={_application.IsActive}, Monitor={_application.RestrictToMonitor}, HashCode={_application.GetHashCode()}");
+
             // Validate input
             if (string.IsNullOrWhiteSpace(_application.TitlePattern))
             {
+                System.Diagnostics.Debug.WriteLine("Validation error: Title pattern is empty");
                 System.Windows.MessageBox.Show("Please enter a title pattern for the application.", "Validation Error", 
                     MessageBoxButton.OK, MessageBoxImage.Error);
                 return;
@@ -128,13 +140,20 @@ namespace ScreenRegionProtector.Views
             if (MonitorComboBox.SelectedIndex >= 0)
             {
                 _application.RestrictToMonitor = MonitorComboBox.SelectedIndex;
+                System.Diagnostics.Debug.WriteLine($"Set RestrictToMonitor to {MonitorComboBox.SelectedIndex}");
             }
             else if (MonitorComboBox.Items.Count > 0)
             {
                 _application.RestrictToMonitor = 0; // Default to first monitor
+                System.Diagnostics.Debug.WriteLine("Set RestrictToMonitor to default (0)");
             }
 
-            DialogResult = true;
+            System.Diagnostics.Debug.WriteLine($"Final application state: Title='{_application.TitlePattern}', Active={_application.IsActive}, Monitor={_application.RestrictToMonitor}, HashCode={_application.GetHashCode()}");
+            
+            // Set standard WPF DialogResult
+            this.DialogResult = true;
+            System.Diagnostics.Debug.WriteLine("Set DialogResult = true and closing window");
+            System.Diagnostics.Debug.WriteLine("===== ApplicationEditorWindow.OkButton_Click - COMPLETE =====");
             Close();
         }
 
@@ -142,7 +161,7 @@ namespace ScreenRegionProtector.Views
         // Handles the Cancel button click
         private void CancelButton_Click(object sender, RoutedEventArgs e)
         {
-            DialogResult = false;
+            this.DialogResult = false;
             Close();
         }
         
@@ -247,6 +266,83 @@ namespace ScreenRegionProtector.Views
             var builder = new System.Text.StringBuilder(length + 1);
             GetWindowText(hWnd, builder, builder.Capacity);
             return builder.ToString();
+        }
+
+        // Apply the current application theme when the window loads
+        private void Window_Loaded(object sender, RoutedEventArgs e)
+        {
+            // Get the app's theme manager
+            var app = System.Windows.Application.Current as ScreenRegionProtector.App;
+            var themeManager = app?.ThemeManager;
+            
+            if (themeManager != null)
+            {
+                ApplyTheme(themeManager.IsDarkTheme);
+            }
+        }
+        
+        // Apply the theme to the editor window
+        private void ApplyTheme(bool isDarkTheme)
+        {
+            // Update background and text colors
+            if (isDarkTheme)
+            {
+                // Apply dark theme
+                MainBorder.Background = (SolidColorBrush)Resources["BackgroundBrushDark"];
+                
+                // Update text colors for all labels
+                TitleLabel.Foreground = (SolidColorBrush)Resources["ForegroundBrushDark"];
+                EnableLabel.Foreground = (SolidColorBrush)Resources["ForegroundBrushDark"];
+                MonitorLabel.Foreground = (SolidColorBrush)Resources["ForegroundBrushDark"];
+                HelpLabel.Foreground = (SolidColorBrush)Resources["ForegroundBrushDark"];
+                HelpText.Foreground = (SolidColorBrush)Resources["ForegroundBrushDark"];
+                
+                // Update control backgrounds as needed
+                TitleTextBox.Background = new SolidColorBrush(System.Windows.Media.Color.FromRgb(45, 45, 48));
+                TitleTextBox.Foreground = System.Windows.Media.Brushes.White;
+                
+                // Update button styles
+                UpdateButtonsForDarkTheme();
+            }
+            else
+            {
+                // Apply light theme
+                MainBorder.Background = (SolidColorBrush)Resources["BackgroundBrushLight"];
+                
+                // Update text colors for all labels
+                TitleLabel.Foreground = (SolidColorBrush)Resources["ForegroundBrushLight"];
+                EnableLabel.Foreground = (SolidColorBrush)Resources["ForegroundBrushLight"];
+                MonitorLabel.Foreground = (SolidColorBrush)Resources["ForegroundBrushLight"];
+                HelpLabel.Foreground = (SolidColorBrush)Resources["ForegroundBrushLight"];
+                HelpText.Foreground = (SolidColorBrush)Resources["ForegroundBrushLight"];
+                
+                // Update control backgrounds as needed
+                TitleTextBox.Background = System.Windows.Media.Brushes.White;
+                TitleTextBox.Foreground = System.Windows.Media.Brushes.Black;
+                
+                // Update button styles
+                UpdateButtonsForLightTheme();
+            }
+        }
+        
+        // Update button styles for dark theme
+        private void UpdateButtonsForDarkTheme()
+        {
+            OkButton.Background = new SolidColorBrush(System.Windows.Media.Color.FromRgb(70, 70, 75));
+            OkButton.Foreground = System.Windows.Media.Brushes.White;
+            
+            CancelButton.Background = new SolidColorBrush(System.Windows.Media.Color.FromRgb(70, 70, 75));
+            CancelButton.Foreground = System.Windows.Media.Brushes.White;
+        }
+        
+        // Update button styles for light theme
+        private void UpdateButtonsForLightTheme()
+        {
+            OkButton.Background = new SolidColorBrush(System.Windows.Media.Color.FromRgb(240, 240, 240));
+            OkButton.Foreground = System.Windows.Media.Brushes.Black;
+            
+            CancelButton.Background = new SolidColorBrush(System.Windows.Media.Color.FromRgb(240, 240, 240));
+            CancelButton.Foreground = System.Windows.Media.Brushes.Black;
         }
     }
 } 

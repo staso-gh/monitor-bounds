@@ -267,6 +267,8 @@
                                       HorizontalScrollBarVisibility="Auto"
                                       VerticalScrollBarVisibility="Auto"
                                       ColumnWidth="SizeToHeader"
+                                      MouseDown="ApplicationsDataGrid_MouseDown"
+                                      MouseDoubleClick="ApplicationsDataGrid_MouseDoubleClick"
                                       Margin="0">
                                 <DataGrid.InputBindings>
                                     <KeyBinding Key="Enter" Command="{Binding EditApplicationCommand}" CommandParameter="{Binding SelectedApplication}" />
@@ -453,8 +455,21 @@
                         
                         <!-- Start/Stop Monitoring Toggle Button -->
                         <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right">
+                            <!-- Theme Toggle Button -->
+                            <Button x:Name="ThemeToggleButton" 
+                                   Style="{StaticResource ModernButtonStyle}"
+                                   Background="#673AB7"
+                                   ToolTip="Toggle Theme (Light/Dark)"
+                                   Click="ThemeToggleButton_Click"
+                                   Margin="6,6,2,6">
+                                <Path x:Name="ThemeIconPath" 
+                                      Data="M12,2 A10,10 0 0,1 22,12 A10,10 0 0,1 12,22 A10,10 0 0,1 2,12 A10,10 0 0,1 12,2M12,4 A8,8 0 0,0 4,12 A8,8 0 0,0 12,20 A8,8 0 0,0 20,12 A8,8 0 0,0 12,4M12,6 A6,6 0 0,1 18,12 A6,6 0 0,1 12,18 A6,6 0 0,1 6,12 A6,6 0 0,1 12,6M12,8 A4,4 0 0,0 8,12 A4,4 0 0,0 12,16 A4,4 0 0,0 16,12 A4,4 0 0,0 12,8Z" 
+                                      Fill="White" 
+                                      Style="{StaticResource ButtonIconStyle}"/>
+                            </Button>
+                            
                             <ToggleButton x:Name="MonitoringToggleButton" 
-                                         IsChecked="{Binding IsMonitoring, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                         IsChecked="{Binding IsMonitoring, Mode=OneWay}"
                                          Style="{StaticResource ModernToggleButtonStyle}"
                                          ToolTip="Toggle Monitoring"
                                          Click="MonitoringToggleButton_Click">

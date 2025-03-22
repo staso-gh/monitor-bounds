@@ -1,5 +1,6 @@
 #nullable enable
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
@@ -10,7 +11,9 @@ using ScreenRegionProtector.Models;
 using ScreenRegionProtector.Services;
 using System.Linq;
 using ScreenRegionProtector.Views;
-using System.Collections.Generic;
+using System.Windows.Threading;
+using Microsoft.Win32;
+using System.IO;
 
 namespace ScreenRegionProtector.ViewModels
 {
@@ -98,29 +101,45 @@ namespace ScreenRegionProtector.ViewModels
         // Loads the configuration from the service
         public async Task LoadConfigurationAsync()
         {
+            System.Diagnostics.Debug.WriteLine("===== LoadConfigurationAsync - STARTING =====");
+            
             await _configurationService.LoadConfigurationAsync();
+            System.Diagnostics.Debug.WriteLine($"Loaded configuration with {_configurationService.TargetApplications.Count} applications");
             
             // Update observable collections
             TargetApplications.Clear();
+            System.Diagnostics.Debug.WriteLine("Cleared TargetApplications collection");
+            
+            // Copy each application from the config service
             foreach (var app in _configurationService.TargetApplications)
             {
-                TargetApplications.Add(app);
-                _windowMonitorService.AddTargetApplication(app);
+                // Create a fresh copy to avoid reference issues
+                var appCopy = new ApplicationWindow
+                {
+                    TitlePattern = app.TitlePattern,
+                    IsActive = app.IsActive,
+                    RestrictToMonitor = app.RestrictToMonitor
+                };
+                
+                TargetApplications.Add(appCopy);
+                
+                // Add to monitoring service if active
+                if (appCopy.IsActive)
+                {
+                    _windowMonitorService.AddTargetApplication(appCopy);
+                }
+                
+                System.Diagnostics.Debug.WriteLine($"Added application: '{appCopy.TitlePattern}', Active={appCopy.IsActive}, Monitor={appCopy.RestrictToMonitor}");
             }
             
             // Start monitoring if configured to do so
             if (_configurationService.StartMonitoringOnStartup)
             {
+                System.Diagnostics.Debug.WriteLine("Starting monitoring based on configuration");
                 StartMonitoring();
             }
-
-            // Fix ConfigurationService TargetApplications issue
-            _configurationService.TargetApplications.Clear();
-            foreach (var app in TargetApplications)
-            {
-                _configurationService.TargetApplications.Add(app);
-            }
-            _configurationService.StartMonitoringOnStartup = IsMonitoring;
+            
+            System.Diagnostics.Debug.WriteLine("===== LoadConfigurationAsync - COMPLETE =====");
         }
 
         private void OnConfigurationChanged(object? sender, EventArgs e)
@@ -141,27 +160,104 @@ namespace ScreenRegionProtector.ViewModels
         // Start monitoring window movements
         private void StartMonitoring()
         {
-            if (_isDisposed) return;
-            _windowMonitorService.StartMonitoring();
-            IsMonitoring = true;
+            if (_isDisposed) 
+            {
+                System.Diagnostics.Debug.WriteLine("Cannot start monitoring - ViewModel is disposed");
+                return;
+            }
+
+            System.Diagnostics.Debug.WriteLine("StartMonitoring called");
+            
+            try
+            {
+                // Explicitly ensure all target applications are properly registered
+                foreach (var app in TargetApplications)
+                {
+                    if (app.IsActive && app.RestrictToMonitor.HasValue)
+                    {
+                        // Always re-add to ensure it's registered correctly
+                        _windowMonitorService.RemoveTargetApplication(app);
+                        _windowMonitorService.AddTargetApplication(app);
+                        System.Diagnostics.Debug.WriteLine($"Registered app for monitoring: {app.TitlePattern} on monitor {app.RestrictToMonitor}");
+                    }
+                }
+                
+                // Start the monitoring service
+                _windowMonitorService.StartMonitoring();
+                
+                // Update IsMonitoring property
+                IsMonitoring = true;
+                
+                // Update configuration to start on startup
+                _configurationService.StartMonitoringOnStartup = true;
+                
+                System.Diagnostics.Debug.WriteLine($"Monitoring started successfully. IsMonitoring = {IsMonitoring}");
+                
+                // Save configuration
+                Task.Run(async () => await SaveConfigurationAsync()).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"ERROR starting monitoring: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine(ex.StackTrace);
+                
+                // Reset state
+                IsMonitoring = false;
+                
+                // Rethrow to allow UI to show error
+                throw;
+            }
         }
 
         private bool CanStartMonitoring()
         {
-            return !_isDisposed && !IsMonitoring;
+            bool result = !_isDisposed && !IsMonitoring;
+            System.Diagnostics.Debug.WriteLine($"CanStartMonitoring() = {result} (_isDisposed={_isDisposed}, IsMonitoring={IsMonitoring})");
+            return result;
         }
 
         // Stop monitoring window movements
         private void StopMonitoring()
         {
-            if (_isDisposed) return;
-            _windowMonitorService.StopMonitoring();
-            IsMonitoring = false;
+            if (_isDisposed)
+            {
+                System.Diagnostics.Debug.WriteLine("Cannot stop monitoring - ViewModel is disposed");
+                return;
+            }
+            
+            System.Diagnostics.Debug.WriteLine("StopMonitoring called");
+            
+            try
+            {
+                // Stop the monitoring service
+                _windowMonitorService.StopMonitoring();
+                
+                // Update IsMonitoring property
+                IsMonitoring = false;
+                
+                // Update configuration
+                _configurationService.StartMonitoringOnStartup = false;
+                
+                System.Diagnostics.Debug.WriteLine($"Monitoring stopped successfully. IsMonitoring = {IsMonitoring}");
+                
+                // Save configuration
+                Task.Run(async () => await SaveConfigurationAsync()).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"ERROR stopping monitoring: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine(ex.StackTrace);
+                
+                // Rethrow to allow UI to show error
+                throw;
+            }
         }
 
         private bool CanStopMonitoring()
         {
-            return !_isDisposed && IsMonitoring;
+            bool result = !_isDisposed && IsMonitoring;
+            System.Diagnostics.Debug.WriteLine($"CanStopMonitoring() = {result} (_isDisposed={_isDisposed}, IsMonitoring={IsMonitoring})");
+            return result;
         }
 
         // Add a new target application
@@ -171,36 +267,71 @@ namespace ScreenRegionProtector.ViewModels
             
             try
             {
+                System.Diagnostics.Debug.WriteLine("===== AddApplicationAsync - STARTING =====");
+                
                 // Create a new application
                 var newApp = new ApplicationWindow
                 {
                     TitlePattern = "*",
-                    IsActive = true
+                    IsActive = true,
+                    // Default to first monitor if available
+                    RestrictToMonitor = 0
                 };
 
                 // Show the editor
-                var editor = new ApplicationEditorWindow(newApp);
-                editor.Owner = System.Windows.Application.Current.MainWindow;
-                editor.ShowDialog();
+                var editor = new ApplicationEditorWindow();
+                bool? result = editor.ShowDialog();
 
-                if (editor.DialogResult)
+                if (result == true && editor.Application != null)
                 {
+                    System.Diagnostics.Debug.WriteLine($"Dialog confirmed. New application: Title='{editor.Application.TitlePattern}', Active={editor.Application.IsActive}, Monitor={editor.Application.RestrictToMonitor}");
+                    
+                    // Create fresh copy to avoid reference issues
+                    var freshApp = new ApplicationWindow
+                    {
+                        TitlePattern = editor.Application.TitlePattern,
+                        IsActive = editor.Application.IsActive,
+                        RestrictToMonitor = editor.Application.RestrictToMonitor,
+                        Handle = editor.Application.Handle
+                    };
+                    
                     // Add to collections
-                    TargetApplications.Add(newApp);
-                    _windowMonitorService.AddTargetApplication(newApp);
+                    TargetApplications.Add(freshApp);
+                    System.Diagnostics.Debug.WriteLine($"Added to TargetApplications collection. New count: {TargetApplications.Count}");
+                    
+                    // Add to monitoring service if needed
+                    if (IsMonitoring && freshApp.IsActive)
+                    {
+                        _windowMonitorService.AddTargetApplication(freshApp);
+                        System.Diagnostics.Debug.WriteLine($"Added to WindowMonitorService: '{freshApp.TitlePattern}'");
+                    }
                     
                     // Select the new item
-                    SelectedApplication = newApp;
+                    SelectedApplication = freshApp;
                     
                     // Save the configuration
+                    System.Diagnostics.Debug.WriteLine("Saving configuration...");
                     await SaveConfigurationAsync();
+                    
+                    // Force UI refresh
+                    OnPropertyChanged(nameof(TargetApplications));
+                    CommandManager.InvalidateRequerySuggested();
+                    
+                    System.Diagnostics.Debug.WriteLine("===== AddApplicationAsync - COMPLETE (added) =====");
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine("===== AddApplicationAsync - COMPLETE (canceled) =====");
                 }
             }
             catch (Exception ex)
             {
+                System.Diagnostics.Debug.WriteLine($"ERROR in AddApplicationAsync: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine(ex.StackTrace);
+                
                 System.Windows.MessageBox.Show(
-                    $"Failed to add application: {ex.Message}",
-                    "Error",
+                    $"Error adding application: {ex.Message}",
+                    "Add Error",
                     System.Windows.MessageBoxButton.OK,
                     System.Windows.MessageBoxImage.Error);
             }
@@ -211,43 +342,165 @@ namespace ScreenRegionProtector.ViewModels
         {
             if (_isDisposed || SelectedApplication == null) 
                 return;
-            
+                
+            System.Diagnostics.Debug.WriteLine($"EditApplicationAsync called for selected application: {SelectedApplication.TitlePattern}");
+            await EditApplicationAsync(SelectedApplication);
+        }
+
+        private async Task<bool> EditApplicationAsync(ApplicationWindow appToEdit)
+        {
             try
             {
-                // Instead of cloning, create a new instance with the same properties
-                var appClone = new ApplicationWindow
+                if (_isDisposed) return false;
+                
+                System.Diagnostics.Debug.WriteLine($"===== EditApplicationAsync - STARTING =====");
+                System.Diagnostics.Debug.WriteLine($"Original app: Title='{appToEdit.TitlePattern}', Active={appToEdit.IsActive}, Monitor={appToEdit.RestrictToMonitor}, HashCode={appToEdit.GetHashCode()}");
+                System.Diagnostics.Debug.WriteLine($"Target applications count before edit: {TargetApplications.Count}");
+                
+                // Save selected application title pattern for comparison later
+                string originalTitlePattern = appToEdit.TitlePattern;
+                bool wasSelected = object.ReferenceEquals(SelectedApplication, appToEdit);
+                System.Diagnostics.Debug.WriteLine($"Was selected: {wasSelected}");
+                
+                foreach (var app in TargetApplications)
                 {
-                    TitlePattern = SelectedApplication.TitlePattern,
-                    IsActive = SelectedApplication.IsActive,
-                    RestrictToMonitor = SelectedApplication.RestrictToMonitor
+                    System.Diagnostics.Debug.WriteLine($"Collection item: Title='{app.TitlePattern}', Active={app.IsActive}, Monitor={app.RestrictToMonitor}, HashCode={app.GetHashCode()}, Equals={object.ReferenceEquals(app, appToEdit)}");
+                }
+                
+                // Create a deep copy for editing to avoid reference issues
+                var applicationCopy = new ApplicationWindow
+                {
+                    TitlePattern = appToEdit.TitlePattern,
+                    IsActive = appToEdit.IsActive,
+                    RestrictToMonitor = appToEdit.RestrictToMonitor,
+                    Handle = appToEdit.Handle
                 };
                 
-                // Show the editor
-                var editor = new ApplicationEditorWindow(appClone);
-                editor.Owner = System.Windows.Application.Current.MainWindow;
-                editor.ShowDialog();
-
-                if (editor.DialogResult)
+                System.Diagnostics.Debug.WriteLine($"Created copy: Title='{applicationCopy.TitlePattern}', HashCode={applicationCopy.GetHashCode()}");
+                
+                // Show the editor dialog with the copy
+                var dialog = new ApplicationEditorWindow(applicationCopy);
+                bool? dialogResult = dialog.ShowDialog();
+                
+                // If user confirmed changes
+                if (dialogResult == true && dialog.Application != null)
                 {
-                    // Instead of CopyFrom, manually update the properties
-                    SelectedApplication.TitlePattern = appClone.TitlePattern;
-                    SelectedApplication.IsActive = appClone.IsActive;
-                    SelectedApplication.RestrictToMonitor = appClone.RestrictToMonitor;
+                    System.Diagnostics.Debug.WriteLine($"Dialog confirmed. New values: Title='{dialog.Application.TitlePattern}', Active={dialog.Application.IsActive}, Monitor={dialog.Application.RestrictToMonitor}, HashCode={dialog.Application.GetHashCode()}");
                     
-                    // Save the configuration
+                    // Find the application in the collection - use index for direct replacement
+                    int indexToReplace = -1;
+                    
+                    // First try to find by reference (most accurate)
+                    for (int i = 0; i < TargetApplications.Count; i++)
+                    {
+                        if (object.ReferenceEquals(TargetApplications[i], appToEdit))
+                        {
+                            indexToReplace = i;
+                            break;
+                        }
+                    }
+                    
+                    // If reference search failed, try title pattern as fallback
+                    if (indexToReplace < 0)
+                    {
+                        for (int i = 0; i < TargetApplications.Count; i++)
+                        {
+                            if (TargetApplications[i].TitlePattern == originalTitlePattern)
+                            {
+                                indexToReplace = i;
+                                break;
+                            }
+                        }
+                    }
+                    
+                    System.Diagnostics.Debug.WriteLine($"Found index to replace: {indexToReplace}");
+                    
+                    if (indexToReplace < 0)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"ERROR: Could not find original app in collection");
+                        return false;
+                    }
+                    
+                    // Create new instance with updated values
+                    var updatedApp = new ApplicationWindow
+                    {
+                        TitlePattern = dialog.Application.TitlePattern,
+                        IsActive = dialog.Application.IsActive,
+                        RestrictToMonitor = dialog.Application.RestrictToMonitor,
+                        Handle = dialog.Application.Handle
+                    };
+                    
+                    System.Diagnostics.Debug.WriteLine($"Created updated app: Title='{updatedApp.TitlePattern}', HashCode={updatedApp.GetHashCode()}");
+                    
+                    // Replace at the found index
+                    TargetApplications.RemoveAt(indexToReplace);
+                    TargetApplications.Insert(indexToReplace, updatedApp);
+                    System.Diagnostics.Debug.WriteLine($"Replaced application at index {indexToReplace}");
+                    
+                    // Update SelectedApplication if it was the one being edited
+                    if (wasSelected)
+                    {
+                        System.Diagnostics.Debug.WriteLine("Updating SelectedApplication reference to the new instance");
+                        SelectedApplication = updatedApp;
+                    }
+                    
+                    // Update the monitoring service if needed
+                    if (IsMonitoring)
+                    {
+                        // Remove old entry first
+                        try
+                        {
+                            _windowMonitorService.RemoveTargetApplication(appToEdit);
+                            System.Diagnostics.Debug.WriteLine($"Unregistered old window: '{appToEdit.TitlePattern}'");
+                        }
+                        catch (Exception ex)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"Failed to unregister window: {ex.Message}");
+                        }
+                        
+                        // Register with new settings if it should be active
+                        if (updatedApp.IsActive)
+                        {
+                            _windowMonitorService.AddTargetApplication(updatedApp);
+                            System.Diagnostics.Debug.WriteLine($"Registered new window: '{updatedApp.TitlePattern}', Monitor={updatedApp.RestrictToMonitor}");
+                        }
+                    }
+                    
+                    // Save the updated configuration
+                    System.Diagnostics.Debug.WriteLine("About to save configuration after edit");
                     await SaveConfigurationAsync();
                     
-                    // Force refresh the UI
+                    // Force UI refresh
                     OnPropertyChanged(nameof(TargetApplications));
+                    CommandManager.InvalidateRequerySuggested();
+                    
+                    System.Diagnostics.Debug.WriteLine("===== EditApplicationAsync - COMPLETE (saved) =====");
+                    
+                    System.Diagnostics.Debug.WriteLine($"Target applications count after edit: {TargetApplications.Count}");
+                    foreach (var app in TargetApplications)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"Final collection item: Title='{app.TitlePattern}', Active={app.IsActive}, Monitor={app.RestrictToMonitor}, HashCode={app.GetHashCode()}");
+                    }
+                    
+                    return true;
                 }
+                
+                System.Diagnostics.Debug.WriteLine("===== EditApplicationAsync - COMPLETE (canceled) =====");
+                return false;
             }
             catch (Exception ex)
             {
+                System.Diagnostics.Debug.WriteLine($"ERROR in EditApplicationAsync: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine(ex.StackTrace);
+                
+                // Show error to user
                 System.Windows.MessageBox.Show(
-                    $"Failed to edit application: {ex.Message}",
-                    "Error",
+                    $"Error editing application: {ex.Message}",
+                    "Edit Error",
                     System.Windows.MessageBoxButton.OK,
                     System.Windows.MessageBoxImage.Error);
+                
+                return false;
             }
         }
 
@@ -333,20 +586,85 @@ namespace ScreenRegionProtector.ViewModels
             
             try
             {
+                System.Diagnostics.Debug.WriteLine("===== SaveConfigurationAsync - STARTING =====");
+                System.Diagnostics.Debug.WriteLine($"ViewModel has {TargetApplications.Count} applications");
+                System.Diagnostics.Debug.WriteLine($"ConfigService has {_configurationService.TargetApplications.Count} applications before save");
+                
+                // Check if config file exists before we start
+                string configFilePath = GetConfigFilePath();
+                bool fileExistsBefore = File.Exists(configFilePath);
+                string contentBefore = string.Empty;
+                if (fileExistsBefore)
+                {
+                    try
+                    {
+                        contentBefore = await File.ReadAllTextAsync(configFilePath);
+                        System.Diagnostics.Debug.WriteLine($"CONFIG FILE BEFORE: Exists={fileExistsBefore}, Size={contentBefore.Length}");
+                        System.Diagnostics.Debug.WriteLine($"Content preview: {contentBefore.Substring(0, Math.Min(contentBefore.Length, 100))}...");
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"Failed to read config file before save: {ex.Message}");
+                    }
+                }
+                
+                // Update the configuration service's collection with our current data
                 _configurationService.TargetApplications.Clear();
                 foreach (var app in TargetApplications)
                 {
-                    _configurationService.TargetApplications.Add(app);
+                    // Create clean copies for saving
+                    var appCopy = new ApplicationWindow
+                    {
+                        TitlePattern = app.TitlePattern,
+                        IsActive = app.IsActive,
+                        RestrictToMonitor = app.RestrictToMonitor
+                    };
+                    _configurationService.TargetApplications.Add(appCopy);
                 }
+                
+                // Set startup monitoring state
                 _configurationService.StartMonitoringOnStartup = IsMonitoring;
                 
+                // Save using standard method
                 await _configurationService.SaveConfigurationAsync();
+                System.Diagnostics.Debug.WriteLine("Configuration saved to disk");
+                
+                // Check if file was actually changed
+                bool fileExistsAfter = File.Exists(configFilePath);
+                string contentAfter = string.Empty;
+                if (fileExistsAfter)
+                {
+                    try
+                    {
+                        contentAfter = await File.ReadAllTextAsync(configFilePath);
+                        System.Diagnostics.Debug.WriteLine($"CONFIG FILE AFTER: Exists={fileExistsAfter}, Size={contentAfter.Length}");
+                        System.Diagnostics.Debug.WriteLine($"Content preview: {contentAfter.Substring(0, Math.Min(contentAfter.Length, 100))}...");
+                        System.Diagnostics.Debug.WriteLine($"Content changed: {contentBefore != contentAfter}");
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"Failed to read config file after save: {ex.Message}");
+                    }
+                }
+                
+                // Notify the UI of changes
+                OnPropertyChanged(nameof(TargetApplications));
+                OnPropertyChanged(nameof(IsMonitoring));
+                
+                // Force command availability refresh
+                CommandManager.InvalidateRequerySuggested();
+                
+                System.Diagnostics.Debug.WriteLine("===== SaveConfigurationAsync - COMPLETE =====");
             }
             catch (Exception ex)
             {
+                System.Diagnostics.Debug.WriteLine($"ERROR in SaveConfigurationAsync: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine(ex.StackTrace);
+                
+                // Show error to user so they know what happened
                 System.Windows.MessageBox.Show(
                     $"Failed to save configuration: {ex.Message}",
-                    "Error",
+                    "Error Saving Configuration",
                     System.Windows.MessageBoxButton.OK,
                     System.Windows.MessageBoxImage.Error);
             }
@@ -388,6 +706,45 @@ namespace ScreenRegionProtector.ViewModels
         protected void OnPropertyChanged([CallerMemberName] string? propertyName = null)
         {
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+        }
+
+        // Helper method to show a dialog window asynchronously
+        private async Task<bool?> ShowDialogAsync(Func<Window> windowCreator)
+        {
+            return await Task.Run(() =>
+            {
+                Window window = null;
+                
+                // Create and show the window on the UI thread
+                System.Windows.Application.Current.Dispatcher.Invoke(() =>
+                {
+                    window = windowCreator();
+                    if (window != null)
+                    {
+                        window.Owner = System.Windows.Application.Current.MainWindow;
+                    }
+                });
+                
+                // Show the dialog on the UI thread and return the result
+                bool? result = null;
+                System.Windows.Application.Current.Dispatcher.Invoke(() =>
+                {
+                    if (window != null)
+                    {
+                        result = window.ShowDialog();
+                    }
+                });
+                
+                return result;
+            });
+        }
+
+        // Helper to get config file path
+        private string GetConfigFilePath()
+        {
+            string appDataPath = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            string appFolderPath = Path.Combine(appDataPath, "WindowBoundaryGuard");
+            return Path.Combine(appFolderPath, "config.json");
         }
     }
 

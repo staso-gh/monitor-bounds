@@ -95,24 +95,8 @@ namespace ScreenRegionProtector.Services
                         // Always notify on initialization to ensure proper theme application
                         if (isInitializing || previousTheme != _isDarkTheme)
                         {
-                            // Make sure to notify subscribers after a small delay to ensure UI components are ready
-                            if (isInitializing)
-                            {
-                                // Use a dispatcher to delay the notification slightly to ensure UI elements are ready
-                                System.Windows.Threading.Dispatcher.CurrentDispatcher.BeginInvoke(
-                                    new Action(() => {
-                                        if (!_isDisposed)
-                                        {
-                                            ThemeChanged?.Invoke(this, _isDarkTheme);
-                                        }
-                                    }),
-                                    System.Windows.Threading.DispatcherPriority.Loaded);
-                            }
-                            else
-                            {
-                                // For regular changes, notify immediately
-                                ThemeChanged?.Invoke(this, _isDarkTheme);
-                            }
+                            // Immediately notify subscribers without any optimization delays
+                            ThemeChanged?.Invoke(this, _isDarkTheme);
                         }
                     }
                 }

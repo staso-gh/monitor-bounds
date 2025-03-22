@@ -8,7 +8,7 @@ namespace ScreenRegionProtector.Models
     
     // Represents an application window that is tracked by the system
     
-    public class ApplicationWindow : INotifyPropertyChanged
+    public class ApplicationWindow : INotifyPropertyChanged, IEquatable<ApplicationWindow>
     {
         private string _titlePattern = "*";
         private bool _isActive = true;
@@ -123,33 +123,66 @@ namespace ScreenRegionProtector.Models
             if (string.IsNullOrEmpty(pattern))
                 return false;
 
+            // The asterisk by itself matches everything
             if (pattern == "*")
                 return true;
 
             // Convert to lowercase for case-insensitive comparison
-            text = text.ToLowerInvariant();
-            pattern = pattern.ToLowerInvariant();
+            string lowerText = text.ToLowerInvariant();
+            string lowerPattern = pattern.ToLowerInvariant();
+            
+            // Special case for Discord - if pattern contains Discord and window contains Discord, consider it a match
+            if (lowerPattern.Contains("discord") && lowerText.Contains("discord"))
+            {
+                System.Diagnostics.Debug.WriteLine("Special case: Discord match detected!");
+                return true;
+            }
 
-            // Very simple wildcard matching - could be improved for more complex patterns
+            // Handle different wildcard patterns
             if (pattern.StartsWith("*") && pattern.EndsWith("*"))
             {
-                string inner = pattern.Substring(1, pattern.Length - 2);
-                return !string.IsNullOrEmpty(inner) && text.Contains(inner);
+                // Pattern is *text* - check if window title contains the inner text
+                string inner = lowerPattern.Substring(1, lowerPattern.Length - 2);
+                return !string.IsNullOrEmpty(inner) && lowerText.Contains(inner);
             }
             else if (pattern.StartsWith("*"))
             {
-                string end = pattern.Substring(1);
-                return text.EndsWith(end);
+                // Pattern is *text - check if window title ends with text
+                string end = lowerPattern.Substring(1);
+                return lowerText.EndsWith(end);
             }
             else if (pattern.EndsWith("*"))
             {
-                string start = pattern.Substring(0, pattern.Length - 1);
-                return text.StartsWith(start);
+                // Pattern is text* - check if window title starts with text
+                string start = lowerPattern.Substring(0, lowerPattern.Length - 1);
+                return lowerText.StartsWith(start);
+            }
+            else if (pattern.Contains("*"))
+            {
+                // Pattern has wildcards in the middle - split and check parts
+                string[] parts = lowerPattern.Split('*');
+                int currentIndex = 0;
+                
+                // Each part must be found in sequence
+                foreach (string part in parts)
+                {
+                    if (string.IsNullOrEmpty(part))
+                        continue;
+                        
+                    int index = lowerText.IndexOf(part, currentIndex);
+                    if (index == -1)
+                        return false;
+                        
+                    currentIndex = index + part.Length;
+                }
+                
+                return true;
             }
             else
             {
-                // Exact match check
-                return text.Equals(pattern);
+                // For general patterns without wildcards, use Contains instead of exact match
+                // This is more permissive but better for real-world window titles
+                return lowerText.Contains(lowerPattern);
             }
         }
 
@@ -159,6 +192,49 @@ namespace ScreenRegionProtector.Models
         protected void NotifyPropertyChanged([CallerMemberName] string propertyName = "")
         {
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+        }
+
+        // Override Equals for proper collection functionality
+        public override bool Equals(object obj)
+        {
+            if (obj is ApplicationWindow other)
+            {
+                return Equals(other);
+            }
+            return false;
+        }
+
+        // Implement IEquatable<ApplicationWindow>
+        public bool Equals(ApplicationWindow other)
+        {
+            if (other == null)
+                return false;
+                
+            // For collections, primarily compare by TitlePattern which is our key identifier
+            // Include other properties as necessary for complete equality
+            return TitlePattern == other.TitlePattern &&
+                   IsActive == other.IsActive &&
+                   RestrictToMonitor == other.RestrictToMonitor;
+                   
+            // Note: We intentionally exclude Handle from equality comparison
+            // as it's a runtime-only property that isn't persisted
+        }
+
+        // Always override GetHashCode when overriding Equals
+        public override int GetHashCode()
+        {
+            // Combine hash codes of the properties used in Equals
+            int hash = TitlePattern?.GetHashCode() ?? 0;
+            hash = (hash * 397) ^ IsActive.GetHashCode();
+            hash = (hash * 397) ^ (RestrictToMonitor?.GetHashCode() ?? 0);
+            
+            return hash;
+        }
+
+        // For better debugging
+        public override string ToString()
+        {
+            return $"Application[Title='{TitlePattern}', Active={IsActive}, Monitor={RestrictToMonitor}]";
         }
     }
 } 

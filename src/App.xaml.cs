@@ -20,11 +20,7 @@ public partial class App : System.Windows.Application
 {
     private NotifyIcon? _notifyIcon;
     private MainWindow? _mainWindow;
-    private bool _isActive = true;
     private ThemeManager? _themeManager;
-    
-    // Event for notifying the main window when active state changes
-    public event EventHandler<bool>? ActiveChanged;
     
     // Public property to expose the theme manager
     public ThemeManager? ThemeManager => _themeManager;
@@ -36,19 +32,6 @@ public partial class App : System.Windows.Application
         // Set up exception handlers
         DispatcherUnhandledException += Current_DispatcherUnhandledException;
         AppDomain.CurrentDomain.UnhandledException += CurrentDomain_UnhandledException;
-        
-        // Adjust process priority to be slightly below normal to reduce system impact
-        try
-        {
-            using (var process = System.Diagnostics.Process.GetCurrentProcess())
-            {
-                process.PriorityClass = System.Diagnostics.ProcessPriorityClass.BelowNormal;
-            }
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"Failed to set process priority: {ex.Message}");
-        }
         
         // Initialize theme manager
         _themeManager = new ThemeManager();
@@ -79,85 +62,126 @@ public partial class App : System.Windows.Application
             // Apply the theme, regardless of window visibility
             _mainWindow.ApplyTheme(isDarkTheme);
             
-            // If window is visible, force a refresh of the UI
+            // If window is visible, force a refresh of the UI without optimization
             if (_mainWindow.IsVisible)
             {
-                // Force UI refresh - use BeginInvoke to avoid potential deadlocks
-                System.Windows.Threading.Dispatcher.CurrentDispatcher.BeginInvoke(new Action(() => {
-                    _mainWindow.UpdateLayout();
-                }), DispatcherPriority.Background);
+                _mainWindow.UpdateLayout();
             }
         }
     }
     
     private void InitializeTrayIcon()
     {
-        _notifyIcon = new NotifyIcon
+        try
         {
-            Visible = true,
-            Icon = _themeManager?.IsDarkTheme == true ? 
-                Resources["DarkIcon"] as System.Drawing.Icon : 
-                Resources["LightIcon"] as System.Drawing.Icon,
-            Text = "Screen Region Protector"
-        };
-        
-        // Create context menu
-        var contextMenu = new ContextMenuStrip();
-        
-        // Show/Hide menu item
-        var showHideItem = new ToolStripMenuItem("Show/Hide", null, (s, e) => ToggleWindowVisibility());
-        contextMenu.Items.Add(showHideItem);
-        
-        // Active toggle menu item
-        var toggleItem = new ToolStripMenuItem("Active", null, (s, e) => ToggleActive())
+            // Ensure we can load at least one icon before creating the tray icon
+            string iconName = _themeManager?.IsDarkTheme == true ? "dark.ico" : "light.ico";
+            string? iconPath = FindIconPath(iconName);
+            
+            if (string.IsNullOrEmpty(iconPath))
+            {
+                // If we can't find the expected icon, try the other one
+                iconName = _themeManager?.IsDarkTheme == true ? "light.ico" : "dark.ico";
+                iconPath = FindIconPath(iconName);
+                
+                if (string.IsNullOrEmpty(iconPath))
+                {
+                    // We couldn't find any icon, show error message
+                    System.Windows.MessageBox.Show(
+                        "Could not find tray icon resources. The application will run without a tray icon.",
+                        "Resource Missing",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Warning);
+                    return;
+                }
+            }
+            
+            // Load icon from found path
+            Icon trayIcon = new Icon(iconPath);
+            
+            _notifyIcon = new NotifyIcon
+            {
+                Visible = true,
+                Icon = trayIcon,
+                Text = "Screen Region Protector"
+            };
+            
+            // Create context menu
+            var contextMenu = new ContextMenuStrip();
+            
+            // Show/Hide menu item
+            var showHideItem = new ToolStripMenuItem("Show/Hide", null, (s, e) => ToggleWindowVisibility());
+            contextMenu.Items.Add(showHideItem);
+            
+            // Separator
+            contextMenu.Items.Add(new ToolStripSeparator());
+            
+            // Exit menu item
+            var exitItem = new ToolStripMenuItem("Exit", null, (s, e) => ExitApplication());
+            contextMenu.Items.Add(exitItem);
+            
+            _notifyIcon.ContextMenuStrip = contextMenu;
+            
+            // Double-click action
+            _notifyIcon.MouseDoubleClick += (s, e) => ToggleWindowVisibility();
+            
+            // Debug message to confirm tray icon creation
+            Debug.WriteLine($"Tray icon created successfully from path: {iconPath}");
+        }
+        catch (Exception ex)
         {
-            Checked = _isActive
-        };
-        contextMenu.Items.Add(toggleItem);
-        
-        // Separator
-        contextMenu.Items.Add(new ToolStripSeparator());
-        
-        // Exit menu item
-        var exitItem = new ToolStripMenuItem("Exit", null, (s, e) => ExitApplication());
-        contextMenu.Items.Add(exitItem);
-        
-        _notifyIcon.ContextMenuStrip = contextMenu;
-        
-        // Double-click action
-        _notifyIcon.MouseDoubleClick += (s, e) => ToggleWindowVisibility();
+            // Show error details
+            Debug.WriteLine($"Failed to create tray icon: {ex.Message}");
+            System.Windows.MessageBox.Show(
+                $"Failed to initialize tray icon: {ex.Message}",
+                "Error",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        }
     }
     
     private void UpdateTrayIcon()
     {
         if (_notifyIcon == null || _themeManager == null) return;
         
-        // Use the appropriate icon based on the theme
-        string iconName = _themeManager.IsDarkTheme ? "dark.ico" : "light.ico";
-        
-        // Find the icon file
-        string? iconPath = FindIconPath(iconName);
-        if (!string.IsNullOrEmpty(iconPath))
+        try
         {
-            try
+            // Use the appropriate icon based on the theme
+            string iconName = _themeManager.IsDarkTheme ? "dark.ico" : "light.ico";
+            
+            // Find the icon file
+            string? iconPath = FindIconPath(iconName);
+            if (string.IsNullOrEmpty(iconPath))
             {
-                // Load the icon from file and set it
-                using (Icon icon = new Icon(iconPath))
+                // Try alternate icon if primary not found
+                iconName = !_themeManager.IsDarkTheme ? "dark.ico" : "light.ico";
+                iconPath = FindIconPath(iconName);
+                
+                if (string.IsNullOrEmpty(iconPath))
                 {
-                    // Use a properly sized icon for the system tray
-                    Icon trayIcon = new Icon(icon, SystemInformation.SmallIconSize);
-                    
-                    // To avoid resource leaks, dispose the old icon first if it exists
-                    _notifyIcon.Icon?.Dispose();
-                    
-                    // Set the new icon
-                    _notifyIcon.Icon = trayIcon;
+                    Debug.WriteLine("Failed to find any icon file for tray icon update");
+                    return;
                 }
             }
-            catch (Exception ex)
+            
+            // Load the icon from file and set it
+            using (Icon icon = new Icon(iconPath))
             {
-                Debug.WriteLine($"Failed to load tray icon: {ex.Message}");
+                // Use a properly sized icon for the system tray
+                Icon trayIcon = new Icon(icon, SystemInformation.SmallIconSize);
+                
+                // To avoid resource leaks, dispose the old icon first if it exists
+                _notifyIcon.Icon?.Dispose();
+                
+                // Set the new icon
+                _notifyIcon.Icon = trayIcon;
+                
+                Debug.WriteLine($"Tray icon updated successfully from path: {iconPath}");
             }
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"Failed to update tray icon: {ex.Message}");
         }
     }
     
@@ -190,22 +214,10 @@ public partial class App : System.Windows.Application
         // Instead of closing, minimize to tray
         e.Cancel = true;
         
-        // Use BeginInvoke to avoid potential issues
-        Dispatcher.BeginInvoke(new Action(() => {
-            if (_mainWindow != null)
-            {
-                _mainWindow.Hide();
-            }
-        }), DispatcherPriority.Background);
-    }
-    
-    private void OnAppActiveChanged(bool isActive)
-    {
-        // Update the tray icon menu
-        if (_notifyIcon?.ContextMenuStrip?.Items.Count > 1 && 
-            _notifyIcon.ContextMenuStrip.Items[1] is ToolStripMenuItem toggleItem)
+        // Hide the window directly without using dispatcher optimizations
+        if (_mainWindow != null)
         {
-            toggleItem.Checked = isActive;
+            _mainWindow.Hide();
         }
     }
     
@@ -263,7 +275,7 @@ public partial class App : System.Windows.Application
             _notifyIcon = null;
         }
         
-        // Force garbage collection before exiting
+        // Force garbage collection before exiting to clean up resources
         GC.Collect();
         GC.WaitForPendingFinalizers();
         
@@ -307,91 +319,92 @@ public partial class App : System.Windows.Application
             var iconUri = new Uri(iconPath, UriKind.Absolute);
             System.Windows.Media.Imaging.BitmapImage bitmapImage = new System.Windows.Media.Imaging.BitmapImage(iconUri);
             
-            // Use dispatcher to avoid cross-thread issues
-            Dispatcher.BeginInvoke(new Action(() => {
-                // Set the icon for all windows 
-                foreach (Window window in Windows)
-                {
-                    window.Icon = bitmapImage;
-                }
-            }), DispatcherPriority.Background);
+            // Directly update windows without using dispatcher optimizations
+            foreach (Window window in Windows)
+            {
+                window.Icon = bitmapImage;
+            }
         }
     }
     
     private string? FindIconPath(string iconName)
     {
-        // First try the project root directory (one level up)
-        string rootPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", iconName);
-        if (File.Exists(rootPath))
+        try
         {
-            return Path.GetFullPath(rootPath);
+            // Check existence of each path before returning
+            string[] possiblePaths = {
+                // Current directory
+                Path.Combine(AppDomain.CurrentDomain.BaseDirectory, iconName),
+                
+                // One level up (project root)
+                Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", iconName)),
+                
+                // Resources directory
+                Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Resources", iconName),
+                
+                // Executable directory
+                Path.Combine(
+                    Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location) ?? AppDomain.CurrentDomain.BaseDirectory, 
+                    iconName),
+                
+                // Fixed paths for debugging
+                @"C:\Users\staso\Documents\git\screen-region-protector\" + iconName,
+                Path.Combine(Environment.CurrentDirectory, iconName)
+            };
+            
+            foreach (string path in possiblePaths)
+            {
+                // Skip null paths
+                if (string.IsNullOrEmpty(path))
+                    continue;
+                    
+                if (File.Exists(path))
+                {
+                    Debug.WriteLine($"Found icon file at: {path}");
+                    return path;
+                }
+            }
+            
+            // Log all checked paths if icon not found
+            Debug.WriteLine($"Icon '{iconName}' not found in any of the following paths:");
+            foreach (string path in possiblePaths)
+            {
+                Debug.WriteLine($"  - {path}");
+            }
+            
+            return null;
         }
-        
-        // Then try the current directory
-        string currentDirPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, iconName);
-        if (File.Exists(currentDirPath))
+        catch (Exception ex)
         {
-            return currentDirPath;
+            Debug.WriteLine($"Error searching for icon file: {ex.Message}");
+            return null;
         }
-        
-        // Finally try the application directory
-        string appPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Resources", iconName);
-        if (File.Exists(appPath))
-        {
-            return appPath;
-        }
-        
-        return null;
     }
 
     // Add method to update tray menu active state
     public void UpdateTrayMenuActive(bool isActive)
     {
-        _isActive = isActive;
-        OnAppActiveChanged(isActive);
+        // Do nothing, Active toggle removed
     }
 
     private void ToggleWindowVisibility()
     {
-        // Use Dispatcher to ensure we're on the UI thread
-        Dispatcher.BeginInvoke(new Action(() => {
-            if (_mainWindow != null)
-            {
-                if (_mainWindow.IsVisible)
-                {
-                    _mainWindow.Hide();
-                }
-                else
-                {
-                    _mainWindow.Show();
-                    _mainWindow.Activate();
-                    _mainWindow.WindowState = WindowState.Normal;
-                }
-            }
-        }), DispatcherPriority.Normal);
-    }
-    
-    private void ToggleActive()
-    {
-        _isActive = !_isActive;
-        
-        // Update the checked state
-        if (_notifyIcon?.ContextMenuStrip?.Items.Count > 1 && 
-            _notifyIcon.ContextMenuStrip.Items[1] is ToolStripMenuItem toggleItem)
+        // If the window is visible, hide it
+        if (_mainWindow != null && _mainWindow.IsVisible)
         {
-            toggleItem.Checked = _isActive;
+            _mainWindow.Hide();
         }
-        
-        // Notify listeners
-        ActiveChanged?.Invoke(this, _isActive);
+        else
+        {
+            // Otherwise show it
+            ShowMainWindow();
+        }
     }
     
     private void ExitApplication()
     {
-        // Use Dispatcher to ensure we're on the UI thread
-        Dispatcher.BeginInvoke(new Action(() => {
-            Shutdown();
-        }), DispatcherPriority.Normal);
+        // Directly shutdown without using dispatcher optimizations
+        Shutdown();
     }
 }
 

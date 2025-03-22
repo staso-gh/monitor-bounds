@@ -1,0 +1,40 @@
+private void DataGrid_PreviewKeyDown(System.Windows.Controls.DataGrid dataGrid, System.Windows.Input.KeyEventArgs args)
+{
+    if (_isDisposed) return;
+    
+    // Enter key for editing application
+    if (args.Key == Key.Return || args.Key == Key.Enter)
+    {
+        if (_viewModel.SelectedApplication != null && 
+            _viewModel.EditApplicationCommand.CanExecute(null))
+        {
+            _viewModel.EditApplicationCommand.Execute(null);
+            args.Handled = true;
+        }
+    }
+    // Delete key for removing application
+    else if (args.Key == Key.Delete)
+    {
+        if (_viewModel.SelectedApplication != null && 
+            _viewModel.RemoveApplicationCommand.CanExecute(null))
+        {
+            _viewModel.RemoveApplicationCommand.Execute(null);
+            args.Handled = true;
+        }
+    }
+    // Space key to toggle the active state
+    else if (args.Key == Key.Space)
+    {
+        if (_viewModel.SelectedApplication != null)
+        {
+            _viewModel.ToggleActiveState(_viewModel.SelectedApplication);
+            args.Handled = true;
+        }
+    }
+    // Prevent arrow keys from toggling state by explicitly handling them
+    else if (args.Key == Key.Right || args.Key == Key.Left)
+    {
+        // Complete consume right/left keys to prevent toggling
+        args.Handled = true;
+    }
+} 
