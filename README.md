@@ -1,4 +1,4 @@
-# <p align="center"><img src="light.ico" width="175" height="175" alt="Screen Region Protector Logo"><br>Screen Region Protector<br><a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg"></a></p>
+# <p align="center"><img src="dark.ico" width="175" height="175" alt="Screen Region Protector Logo"><br>Screen Region Protector<br><a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg"></a></p>
 
 ## Table of Contents
 
