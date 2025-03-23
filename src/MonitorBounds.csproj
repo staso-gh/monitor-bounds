@@ -2,10 +2,22 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net8.0-windows</TargetFramework>
+    <TargetFramework>net9.0-windows</TargetFramework>
     <UseWPF>true</UseWPF>
     <UseWindowsForms>true</UseWindowsForms>
     <ApplicationIcon>..\light.ico</ApplicationIcon>
+    <!-- Performance Optimization Settings -->
+    <Optimize>true</Optimize>
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>true</SelfContained>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <EnableUnmanagedDebugging>false</EnableUnmanagedDebugging>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <UseSystemResourceKeys>true</UseSystemResourceKeys>
+    <UseWPFUnmanagedDebugging>false</UseWPFUnmanagedDebugging>
   </PropertyGroup>
 
   <ItemGroup>
