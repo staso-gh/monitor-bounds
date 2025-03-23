@@ -12,16 +12,98 @@
         MinWidth="350" MinHeight="400">
     
     <Window.Resources>
-        <!-- Modern Button Style -->
-        <Style x:Key="ModernButtonStyle" TargetType="Button">
+        <!-- Color Palette -->
+        <Color x:Key="PrimaryLightBackground">#F8F8F8</Color>
+        <Color x:Key="PrimaryLightForeground">#202020</Color>
+        <Color x:Key="PrimaryDarkBackground">#2D2D30</Color>
+        <Color x:Key="PrimaryDarkForeground">#FFFFFF</Color>
+        
+        <Color x:Key="AccentPurple">#673AB7</Color>
+        <Color x:Key="AccentGreen">#4CAF50</Color>
+        <Color x:Key="AccentRed">#F44336</Color>
+        <Color x:Key="AccentYellow">#FFC107</Color>
+        <Color x:Key="AccentBlue">#2196F3</Color>
+        <Color x:Key="LightGray">#E0E0E0</Color>
+        <Color x:Key="MediumGray">#8A8A8A</Color>
+        <Color x:Key="DarkGray">#3E3E42</Color>
+        
+        <!-- Common Brushes -->
+        <SolidColorBrush x:Key="PrimaryLightBackgroundBrush" Color="{StaticResource PrimaryLightBackground}" Opacity="0.95"/>
+        <SolidColorBrush x:Key="PrimaryLightForegroundBrush" Color="{StaticResource PrimaryLightForeground}"/>
+        <SolidColorBrush x:Key="PrimaryDarkBackgroundBrush" Color="{StaticResource PrimaryDarkBackground}" Opacity="0.95"/>
+        <SolidColorBrush x:Key="PrimaryDarkForegroundBrush" Color="{StaticResource PrimaryDarkForeground}"/>
+        
+        <SolidColorBrush x:Key="AccentPurpleBrush" Color="{StaticResource AccentPurple}"/>
+        <SolidColorBrush x:Key="AccentGreenBrush" Color="{StaticResource AccentGreen}"/>
+        <SolidColorBrush x:Key="AccentRedBrush" Color="{StaticResource AccentRed}"/>
+        <SolidColorBrush x:Key="AccentYellowBrush" Color="{StaticResource AccentYellow}"/>
+        <SolidColorBrush x:Key="AccentBlueBrush" Color="{StaticResource AccentBlue}"/>
+        <SolidColorBrush x:Key="LightGrayBrush" Color="{StaticResource LightGray}"/>
+        <SolidColorBrush x:Key="MediumGrayBrush" Color="{StaticResource MediumGray}"/>
+        <SolidColorBrush x:Key="DarkGrayBrush" Color="{StaticResource DarkGray}"/>
+        
+        <!-- Button Icon Style -->
+        <Style x:Key="ButtonIconStyle" TargetType="Path">
+            <Setter Property="Width" Value="16"/>
+            <Setter Property="Height" Value="16"/>
+            <Setter Property="Stretch" Value="Uniform"/>
+            <Setter Property="StrokeThickness" Value="1"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="HorizontalAlignment" Value="Center"/>
+        </Style>
+        
+        <!-- Icon Path Data Resources -->
+        <Geometry x:Key="AddIconGeometry">M5,12 L19,12 M12,5 L12,19</Geometry>
+        <Geometry x:Key="EditIconGeometry">M3,17.25V21h3.75L17.81,9.94l-3.75-3.75L3,17.25z M20.71,7.04c0.39-0.39,0.39-1.02,0-1.41l-2.34-2.34c-0.39-0.39-1.02-0.39-1.41,0l-1.83,1.83l3.75,3.75L20.71,7.04z</Geometry>
+        <Geometry x:Key="RemoveIconGeometry">M6,19 L19,6 M6,6 L19,19</Geometry>
+        <Geometry x:Key="PlayIconGeometry">M6,3 L14,8 L6,13 Z</Geometry>
+        <Geometry x:Key="StopIconGeometry">M5,5 L11,5 L11,11 L5,11 Z</Geometry>
+        <Geometry x:Key="MinimizeIconGeometry">M0,0 L10,0</Geometry>
+        <Geometry x:Key="MaximizeIconGeometry">M0,0 L10,0 L10,10 L0,10 Z</Geometry>
+        <Geometry x:Key="CloseIconGeometry">M0,0 L10,10 M0,10 L10,0</Geometry>
+        <Geometry x:Key="ThemeIconGeometry">M12,2 A10,10 0 0,1 22,12 A10,10 0 0,1 12,22 A10,10 0 0,1 2,12 A10,10 0 0,1 12,2M12,4 A8,8 0 0,0 4,12 A8,8 0 0,0 12,20 A8,8 0 0,0 20,12 A8,8 0 0,0 12,4M12,6 A6,6 0 0,1 18,12 A6,6 0 0,1 12,18 A6,6 0 0,1 6,12 A6,6 0 0,1 12,6M12,8 A4,4 0 0,0 8,12 A4,4 0 0,0 12,16 A4,4 0 0,0 16,12 A4,4 0 0,0 12,8Z</Geometry>
+        
+        <!-- Base Button Style (all styles inherit from this) -->
+        <Style x:Key="BaseButtonStyle" TargetType="ButtonBase">
             <Setter Property="Padding" Value="8,8"/>
             <Setter Property="Margin" Value="6"/>
             <Setter Property="MinWidth" Value="40"/>
             <Setter Property="Width" Value="40"/>
             <Setter Property="Height" Value="40"/>
-            <Setter Property="Background" Value="#f0f0f0"/>
-            <Setter Property="Foreground" Value="#202020"/>
+            <Setter Property="Background" Value="{StaticResource MediumGrayBrush}"/>
+            <Setter Property="Foreground" Value="{StaticResource PrimaryLightForegroundBrush}"/>
             <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ButtonBase">
+                        <Border x:Name="ButtonBorder" Background="{TemplateBinding Background}" 
+                                CornerRadius="4"
+                                Padding="{TemplateBinding Padding}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                BorderBrush="{TemplateBinding BorderBrush}">
+                            <ContentPresenter x:Name="ButtonContent" 
+                                              HorizontalAlignment="Center" 
+                                              VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Opacity" Value="0.85"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter Property="Opacity" Value="0.7"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.5"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        
+        <!-- Modern Button Style -->
+        <Style x:Key="ModernButtonStyle" TargetType="Button" BasedOn="{StaticResource BaseButtonStyle}">
+            <Setter Property="Background" Value="#f0f0f0"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
@@ -33,7 +115,7 @@
                             <ContentPresenter x:Name="ButtonContent" 
                                               HorizontalAlignment="Center" 
                                               VerticalAlignment="Center"
-                                              TextElement.Foreground="#202020"/>
+                                              TextElement.Foreground="{Binding Foreground, RelativeSource={RelativeSource TemplatedParent}}"/>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
@@ -51,31 +133,38 @@
             </Setter>
         </Style>
 
-        <!-- Action Button Style (Green/Red) -->
-        <Style x:Key="ActionButtonStyle" TargetType="Button" BasedOn="{StaticResource ModernButtonStyle}">
-            <Setter Property="Foreground" Value="White"/>
+        <!-- Colored Button Styles (using inheritance) -->
+        <Style x:Key="EditButtonStyle" TargetType="Button" BasedOn="{StaticResource ModernButtonStyle}">
+            <Setter Property="Background" Value="{StaticResource AccentYellowBrush}"/>
+            <Setter Property="Foreground" Value="{StaticResource PrimaryLightForegroundBrush}"/>
+        </Style>
+        
+        <Style x:Key="RemoveButtonStyle" TargetType="Button" BasedOn="{StaticResource ModernButtonStyle}">
+            <Setter Property="Background" Value="{StaticResource AccentRedBrush}"/>
+            <Setter Property="Foreground" Value="{StaticResource PrimaryDarkForegroundBrush}"/>
+        </Style>
+        
+        <Style x:Key="InfoButtonStyle" TargetType="Button" BasedOn="{StaticResource ModernButtonStyle}">
+            <Setter Property="Background" Value="{StaticResource AccentBlueBrush}"/>
+            <Setter Property="Foreground" Value="{StaticResource PrimaryDarkForegroundBrush}"/>
+        </Style>
+        
+        <!-- Window Control Button Style -->
+        <Style x:Key="WindowControlButtonStyle" TargetType="Button">
+            <Setter Property="Width" Value="30"/>
+            <Setter Property="Height" Value="30"/>
+            <Setter Property="Margin" Value="2,0"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border x:Name="ButtonBorder" Background="{TemplateBinding Background}" 
-                                CornerRadius="4"
-                                Padding="{TemplateBinding Padding}"
-                                BorderThickness="{TemplateBinding BorderThickness}"
-                                BorderBrush="{TemplateBinding BorderBrush}">
-                            <ContentPresenter x:Name="ButtonContent" 
-                                             HorizontalAlignment="Center" 
-                                             VerticalAlignment="Center" 
-                                             TextElement.Foreground="White"/>
+                        <Border Background="{TemplateBinding Background}" Padding="8">
+                            <ContentPresenter />
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter Property="Opacity" Value="0.85"/>
-                            </Trigger>
-                            <Trigger Property="IsPressed" Value="True">
-                                <Setter Property="Opacity" Value="0.7"/>
-                            </Trigger>
-                            <Trigger Property="IsEnabled" Value="False">
-                                <Setter Property="Opacity" Value="0.5"/>
+                                <Setter Property="Background" Value="#1A000000"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -83,43 +172,25 @@
             </Setter>
         </Style>
         
-        <!-- Modern Toggle Button Style (Updated to match other buttons) -->
-        <Style x:Key="ModernToggleButtonStyle" TargetType="ToggleButton">
-            <Setter Property="Padding" Value="8,8"/>
-            <Setter Property="Margin" Value="6"/>
-            <Setter Property="MinWidth" Value="40"/>
-            <Setter Property="Width" Value="40"/>
-            <Setter Property="Height" Value="40"/>
-            <Setter Property="Background" Value="#4CAF50"/>
-            <Setter Property="BorderThickness" Value="0"/>
+        <!-- Modern Toggle Button Style -->
+        <Style x:Key="ModernToggleButtonStyle" TargetType="ToggleButton" BasedOn="{StaticResource BaseButtonStyle}">
+            <Setter Property="Background" Value="{StaticResource AccentGreenBrush}"/>
+            <Setter Property="Foreground" Value="{StaticResource PrimaryDarkForegroundBrush}"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="ToggleButton">
                         <Border x:Name="border" Background="{TemplateBinding Background}" 
                                 CornerRadius="4"
-                                Padding="{TemplateBinding Padding}"
-                                BorderThickness="{TemplateBinding BorderThickness}"
-                                BorderBrush="{TemplateBinding BorderBrush}">
-                            <Grid>
-                                <!-- Play Icon (Start) in unchecked state -->
-                                <Path x:Name="playIcon" 
-                                      Data="M6,3 L14,8 L6,13 Z" Fill="White" 
-                                      Width="16" Height="16" Stretch="Uniform"
-                                      HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                
-                                <!-- Stop Icon (Stop) in checked state -->
-                                <Path x:Name="stopIcon" 
-                                      Data="M5,5 L11,5 L11,11 L5,11 Z" Fill="White" 
-                                      Width="16" Height="16" Stretch="Uniform"
-                                      HorizontalAlignment="Center" VerticalAlignment="Center"
-                                      Visibility="Collapsed"/>
-                            </Grid>
+                                Padding="{TemplateBinding Padding}">
+                            <Path x:Name="buttonIcon" 
+                                  Data="{StaticResource PlayIconGeometry}" 
+                                  Fill="{TemplateBinding Foreground}"
+                                  Style="{StaticResource ButtonIconStyle}"/>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsChecked" Value="True">
-                                <Setter Property="Background" Value="#F44336"/>
-                                <Setter TargetName="playIcon" Property="Visibility" Value="Collapsed"/>
-                                <Setter TargetName="stopIcon" Property="Visibility" Value="Visible"/>
+                                <Setter Property="Background" Value="{StaticResource AccentRedBrush}"/>
+                                <Setter TargetName="buttonIcon" Property="Data" Value="{StaticResource StopIconGeometry}"/>
                             </Trigger>
                             <Trigger Property="IsMouseOver" Value="True">
                                 <Setter Property="Opacity" Value="0.85"/>
@@ -136,41 +207,13 @@
             </Setter>
         </Style>
         
-        <!-- Edit Button Style (Yellow) -->
-        <Style x:Key="EditButtonStyle" TargetType="Button" BasedOn="{StaticResource ModernButtonStyle}">
-            <Setter Property="Background" Value="#FFC107"/>
-            <Setter Property="Foreground" Value="#202020"/>
-        </Style>
-        
-        <!-- Remove Button Style (Red) -->
-        <Style x:Key="RemoveButtonStyle" TargetType="Button" BasedOn="{StaticResource ModernButtonStyle}">
-            <Setter Property="Background" Value="#F44336"/>
-            <Setter Property="Foreground" Value="White"/>
-        </Style>
-        
-        <!-- Info Button Style (Blue) -->
-        <Style x:Key="InfoButtonStyle" TargetType="Button" BasedOn="{StaticResource ModernButtonStyle}">
-            <Setter Property="Background" Value="#2196F3"/>
-            <Setter Property="Foreground" Value="White"/>
-        </Style>
-        
-        <!-- Path icons for buttons -->
-        <Style x:Key="ButtonIconStyle" TargetType="Path">
-            <Setter Property="Width" Value="16"/>
-            <Setter Property="Height" Value="16"/>
-            <Setter Property="Stretch" Value="Uniform"/>
-            <Setter Property="StrokeThickness" Value="1"/>
-            <Setter Property="VerticalAlignment" Value="Center"/>
-            <Setter Property="HorizontalAlignment" Value="Center"/>
-        </Style>
-        
-        <!-- DataGrid Row Style for Light Theme -->
+        <!-- DataGrid Row Styles -->
         <Style x:Key="DataGridRowStyleLight" TargetType="DataGridRow">
             <Setter Property="Background" Value="Transparent"/>
             <Style.Triggers>
                 <Trigger Property="IsSelected" Value="True">
                     <Setter Property="Background" Value="#e3f2fd"/>
-                    <Setter Property="Foreground" Value="#202020"/>
+                    <Setter Property="Foreground" Value="{StaticResource PrimaryLightForegroundBrush}"/>
                 </Trigger>
                 <Trigger Property="IsMouseOver" Value="True">
                     <Setter Property="Background" Value="#f5f5f5"/>
@@ -178,19 +221,33 @@
             </Style.Triggers>
         </Style>
         
-        <!-- DataGrid Row Style for Dark Theme -->
         <Style x:Key="DataGridRowStyleDark" TargetType="DataGridRow">
             <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="Foreground" Value="#ffffff"/>
+            <Setter Property="Foreground" Value="{StaticResource PrimaryDarkForegroundBrush}"/>
             <Style.Triggers>
                 <Trigger Property="IsSelected" Value="True">
                     <Setter Property="Background" Value="#3e4047"/>
-                    <Setter Property="Foreground" Value="#ffffff"/>
+                    <Setter Property="Foreground" Value="{StaticResource PrimaryDarkForegroundBrush}"/>
                 </Trigger>
                 <Trigger Property="IsMouseOver" Value="True">
                     <Setter Property="Background" Value="#4a4a52"/>
                 </Trigger>
             </Style.Triggers>
+        </Style>
+        
+        <!-- DataGrid Column Header and Cell Styles -->
+        <Style x:Key="DataGridColumnHeaderStyle" TargetType="DataGridColumnHeader">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Padding" Value="8 12"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+        </Style>
+        
+        <Style x:Key="DataGridCellStyle" TargetType="DataGridCell">
+            <Setter Property="Padding" Value="8 4"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="IsTabStop" Value="False"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
         </Style>
     </Window.Resources>
     
@@ -199,7 +256,7 @@
             <DropShadowEffect BlurRadius="15" ShadowDepth="2" Direction="315" Opacity="0.2" Color="#000000"/>
         </Border.Effect>
         <Border.Background>
-            <SolidColorBrush Color="#F8F8F8" Opacity="0.95"/>
+            <SolidColorBrush Color="{StaticResource PrimaryLightBackground}" Opacity="0.95"/>
         </Border.Background>
         <Grid>
             <!-- Main Content -->
@@ -222,26 +279,41 @@
                         <StackPanel Grid.Column="0" Orientation="Horizontal">
                             <TextBlock Text="Monitor Bounds" 
                                    FontSize="18" FontWeight="SemiBold" Margin="0,0,0,12"
-                                   Foreground="#1e1e1e"/>
+                                   Foreground="{StaticResource PrimaryLightForegroundBrush}"/>
                         </StackPanel>
                         
                         <!-- Window Controls -->
                         <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Top">
-                            <Button x:Name="MinimizeButton" Click="MinimizeButton_Click" Width="30" Height="30" Margin="2,0" Background="Transparent" BorderThickness="0">
-                                <Path Data="M0,0 L10,0" Stroke="#1e1e1e" StrokeThickness="1" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                            <Button x:Name="MinimizeButton" Click="MinimizeButton_Click"
+                                    Style="{StaticResource WindowControlButtonStyle}">
+                                <Path Data="{StaticResource MinimizeIconGeometry}" 
+                                      Stroke="{StaticResource PrimaryLightForegroundBrush}" 
+                                      StrokeThickness="1" 
+                                      VerticalAlignment="Center" 
+                                      HorizontalAlignment="Center"/>
                             </Button>
-                            <Button x:Name="MaximizeButton" Click="MaximizeButton_Click" Width="30" Height="30" Margin="2,0" Background="Transparent" BorderThickness="0">
-                                <Path Data="M0,0 L10,0 L10,10 L0,10 Z" Stroke="#1e1e1e" StrokeThickness="1" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                            <Button x:Name="MaximizeButton" Click="MaximizeButton_Click"
+                                    Style="{StaticResource WindowControlButtonStyle}">
+                                <Path Data="{StaticResource MaximizeIconGeometry}" 
+                                      Stroke="{StaticResource PrimaryLightForegroundBrush}" 
+                                      StrokeThickness="1" 
+                                      VerticalAlignment="Center" 
+                                      HorizontalAlignment="Center"/>
                             </Button>
-                            <Button x:Name="CloseButton" Click="CloseButton_Click" Width="30" Height="30" Margin="2,0" Background="Transparent" BorderThickness="0">
-                                <Path Data="M0,0 L10,10 M0,10 L10,0" Stroke="#1e1e1e" StrokeThickness="1" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                            <Button x:Name="CloseButton" Click="CloseButton_Click"
+                                    Style="{StaticResource WindowControlButtonStyle}">
+                                <Path Data="{StaticResource CloseIconGeometry}" 
+                                      Stroke="{StaticResource PrimaryLightForegroundBrush}" 
+                                      StrokeThickness="1" 
+                                      VerticalAlignment="Center" 
+                                      HorizontalAlignment="Center"/>
                             </Button>
                         </StackPanel>
                     </Grid>
 
                     <!-- Target Applications Section -->
                     <Grid Grid.Row="1">
-                        <Border x:Name="DataGridBorder" Background="#FFFFFF" CornerRadius="6" BorderThickness="1" BorderBrush="#e0e0e0" Padding="4,0,4,0">
+                        <Border x:Name="DataGridBorder" Background="White" CornerRadius="6" BorderThickness="1" BorderBrush="{StaticResource LightGrayBrush}" Padding="4,0,4,0">
                             <DataGrid x:Name="ApplicationsDataGrid" 
                                       ItemsSource="{Binding TargetApplications}" 
                                       SelectedItem="{Binding SelectedApplication}"
@@ -280,7 +352,7 @@
                                                 StaysOpen="False">
                                         <ContextMenu.Resources>
                                             <Style TargetType="MenuItem">
-                                                <Setter Property="Foreground" Value="#202020"/>
+                                                <Setter Property="Foreground" Value="{StaticResource PrimaryLightForegroundBrush}"/>
                                             </Style>
                                         </ContextMenu.Resources>
                                         <MenuItem Header="Edit" Command="{Binding EditApplicationCommand}" 
@@ -293,18 +365,8 @@
                                     </ContextMenu>
                                 </DataGrid.ContextMenu>
                                 <DataGrid.Resources>
-                                    <Style TargetType="DataGridColumnHeader">
-                                        <Setter Property="Background" Value="Transparent"/>
-                                        <Setter Property="Padding" Value="8 12"/>
-                                        <Setter Property="FontWeight" Value="SemiBold"/>
-                                    </Style>
-                                    <Style TargetType="DataGridCell">
-                                        <Setter Property="Padding" Value="8 4"/>
-                                        <Setter Property="BorderThickness" Value="0"/>
-                                        <Setter Property="VerticalAlignment" Value="Center"/>
-                                        <Setter Property="IsTabStop" Value="False"/>
-                                        <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
-                                    </Style>
+                                    <Style TargetType="DataGridColumnHeader" BasedOn="{StaticResource DataGridColumnHeaderStyle}"/>
+                                    <Style TargetType="DataGridCell" BasedOn="{StaticResource DataGridCellStyle}"/>
                                     <Style TargetType="DataGridRow">
                                         <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
                                     </Style>
@@ -312,7 +374,7 @@
                                 <DataGrid.Columns>
                                     <DataGridTextColumn Header="Pattern" Binding="{Binding TitlePattern}" Width="*">
                                         <DataGridTextColumn.HeaderStyle>
-                                            <Style TargetType="DataGridColumnHeader" BasedOn="{StaticResource {x:Type DataGridColumnHeader}}">
+                                            <Style TargetType="DataGridColumnHeader" BasedOn="{StaticResource DataGridColumnHeaderStyle}">
                                                 <Setter Property="HorizontalContentAlignment" Value="Left"/>
                                                 <Setter Property="Padding" Value="12,12,8,12"/>
                                             </Style>
@@ -326,7 +388,7 @@
                                     </DataGridTextColumn>
                                     <DataGridTextColumn Header="Status" Width="Auto" MinWidth="80">
                                         <DataGridTextColumn.HeaderStyle>
-                                            <Style TargetType="DataGridColumnHeader" BasedOn="{StaticResource {x:Type DataGridColumnHeader}}">
+                                            <Style TargetType="DataGridColumnHeader" BasedOn="{StaticResource DataGridColumnHeaderStyle}">
                                                 <Setter Property="HorizontalContentAlignment" Value="Center"/>
                                             </Style>
                                         </DataGridTextColumn.HeaderStyle>
@@ -343,7 +405,7 @@
                                     </DataGridTextColumn>
                                     <DataGridTextColumn Header="Monitor" Binding="{Binding RestrictToMonitor}" Width="Auto" MinWidth="80">
                                         <DataGridTextColumn.HeaderStyle>
-                                            <Style TargetType="DataGridColumnHeader" BasedOn="{StaticResource {x:Type DataGridColumnHeader}}">
+                                            <Style TargetType="DataGridColumnHeader" BasedOn="{StaticResource DataGridColumnHeaderStyle}">
                                                 <Setter Property="HorizontalContentAlignment" Value="Center"/>
                                             </Style>
                                         </DataGridTextColumn.HeaderStyle>
@@ -370,86 +432,29 @@
                         <StackPanel Grid.Column="0" Orientation="Horizontal">
                             <Button x:Name="AddButton" Command="{Binding AddApplicationCommand}" 
                                     Style="{StaticResource ModernButtonStyle}"
+                                    Background="{StaticResource MediumGrayBrush}"
                                     ToolTip="Add Application">
-                                <Button.Template>
-                                    <ControlTemplate TargetType="Button">
-                                        <Border x:Name="ButtonBorder" Background="#8a8a8a" 
-                                                CornerRadius="4"
-                                                Padding="{TemplateBinding Padding}"
-                                                BorderThickness="{TemplateBinding BorderThickness}"
-                                                BorderBrush="{TemplateBinding BorderBrush}">
-                                            <Path Data="M5,12 L19,12 M12,5 L12,19" Stroke="White" StrokeThickness="2"
-                                                  Style="{StaticResource ButtonIconStyle}"/>
-                                        </Border>
-                                        <ControlTemplate.Triggers>
-                                            <Trigger Property="IsMouseOver" Value="True">
-                                                <Setter Property="Opacity" Value="0.85"/>
-                                            </Trigger>
-                                            <Trigger Property="IsPressed" Value="True">
-                                                <Setter Property="Opacity" Value="0.7"/>
-                                            </Trigger>
-                                            <Trigger Property="IsEnabled" Value="False">
-                                                <Setter Property="Opacity" Value="0.5"/>
-                                            </Trigger>
-                                        </ControlTemplate.Triggers>
-                                    </ControlTemplate>
-                                </Button.Template>
+                                <Path Data="{StaticResource AddIconGeometry}" 
+                                      Stroke="White" 
+                                      StrokeThickness="2"
+                                      Style="{StaticResource ButtonIconStyle}"/>
                             </Button>
                             <Button x:Name="EditButton" Command="{Binding EditApplicationCommand}" 
                                     IsEnabled="{Binding SelectedApplication, Converter={StaticResource BoolToVisibilityConverter}, ConverterParameter=bool}"
                                     Style="{StaticResource EditButtonStyle}"
                                     ToolTip="Edit Application">
-                                <Button.Template>
-                                    <ControlTemplate TargetType="Button">
-                                        <Border x:Name="ButtonBorder" Background="#FFC107" 
-                                                CornerRadius="4"
-                                                Padding="{TemplateBinding Padding}"
-                                                BorderThickness="{TemplateBinding BorderThickness}"
-                                                BorderBrush="{TemplateBinding BorderBrush}">
-                                            <Path Data="M3,17.25V21h3.75L17.81,9.94l-3.75-3.75L3,17.25z M20.71,7.04c0.39-0.39,0.39-1.02,0-1.41l-2.34-2.34c-0.39-0.39-1.02-0.39-1.41,0l-1.83,1.83l3.75,3.75L20.71,7.04z" Fill="#202020" 
-                                                  Style="{StaticResource ButtonIconStyle}"/>
-                                        </Border>
-                                        <ControlTemplate.Triggers>
-                                            <Trigger Property="IsMouseOver" Value="True">
-                                                <Setter Property="Opacity" Value="0.85"/>
-                                            </Trigger>
-                                            <Trigger Property="IsPressed" Value="True">
-                                                <Setter Property="Opacity" Value="0.7"/>
-                                            </Trigger>
-                                            <Trigger Property="IsEnabled" Value="False">
-                                                <Setter Property="Opacity" Value="0.5"/>
-                                            </Trigger>
-                                        </ControlTemplate.Triggers>
-                                    </ControlTemplate>
-                                </Button.Template>
+                                <Path Data="{StaticResource EditIconGeometry}" 
+                                      Fill="{StaticResource PrimaryLightForegroundBrush}" 
+                                      Style="{StaticResource ButtonIconStyle}"/>
                             </Button>
                             <Button x:Name="RemoveButton" Command="{Binding RemoveApplicationCommand}" 
                                     IsEnabled="{Binding SelectedApplication, Converter={StaticResource BoolToVisibilityConverter}, ConverterParameter=bool}"
                                     Style="{StaticResource RemoveButtonStyle}"
                                     ToolTip="Remove Application">
-                                <Button.Template>
-                                    <ControlTemplate TargetType="Button">
-                                        <Border x:Name="ButtonBorder" Background="#F44336" 
-                                                CornerRadius="4"
-                                                Padding="{TemplateBinding Padding}"
-                                                BorderThickness="{TemplateBinding BorderThickness}"
-                                                BorderBrush="{TemplateBinding BorderBrush}">
-                                            <Path Data="M6,19 L19,6 M6,6 L19,19" Stroke="White" StrokeThickness="2"
-                                                  Style="{StaticResource ButtonIconStyle}"/>
-                                        </Border>
-                                        <ControlTemplate.Triggers>
-                                            <Trigger Property="IsMouseOver" Value="True">
-                                                <Setter Property="Opacity" Value="0.85"/>
-                                            </Trigger>
-                                            <Trigger Property="IsPressed" Value="True">
-                                                <Setter Property="Opacity" Value="0.7"/>
-                                            </Trigger>
-                                            <Trigger Property="IsEnabled" Value="False">
-                                                <Setter Property="Opacity" Value="0.5"/>
-                                            </Trigger>
-                                        </ControlTemplate.Triggers>
-                                    </ControlTemplate>
-                                </Button.Template>
+                                <Path Data="{StaticResource RemoveIconGeometry}" 
+                                      Stroke="White" 
+                                      StrokeThickness="2"
+                                      Style="{StaticResource ButtonIconStyle}"/>
                             </Button>
                         </StackPanel>
                         
@@ -458,12 +463,13 @@
                             <!-- Theme Toggle Button -->
                             <Button x:Name="ThemeToggleButton" 
                                    Style="{StaticResource ModernButtonStyle}"
-                                   Background="#673AB7"
+                                   Background="{StaticResource AccentPurpleBrush}"
+                                   Foreground="White"
                                    ToolTip="Toggle Theme (Light/Dark)"
                                    Click="ThemeToggleButton_Click"
                                    Margin="6,6,2,6">
                                 <Path x:Name="ThemeIconPath" 
-                                      Data="M12,2 A10,10 0 0,1 22,12 A10,10 0 0,1 12,22 A10,10 0 0,1 2,12 A10,10 0 0,1 12,2M12,4 A8,8 0 0,0 4,12 A8,8 0 0,0 12,20 A8,8 0 0,0 20,12 A8,8 0 0,0 12,4M12,6 A6,6 0 0,1 18,12 A6,6 0 0,1 12,18 A6,6 0 0,1 6,12 A6,6 0 0,1 12,6M12,8 A4,4 0 0,0 8,12 A4,4 0 0,0 12,16 A4,4 0 0,0 16,12 A4,4 0 0,0 12,8Z" 
+                                      Data="{StaticResource ThemeIconGeometry}" 
                                       Fill="White" 
                                       Style="{StaticResource ButtonIconStyle}"/>
                             </Button>
@@ -472,8 +478,7 @@
                                          IsChecked="{Binding IsMonitoring, Mode=OneWay}"
                                          Style="{StaticResource ModernToggleButtonStyle}"
                                          ToolTip="Toggle Monitoring"
-                                         Click="MonitoringToggleButton_Click">
-                            </ToggleButton>
+                                         Click="MonitoringToggleButton_Click"/>
                         </StackPanel>
                     </Grid>
                 </Grid>
