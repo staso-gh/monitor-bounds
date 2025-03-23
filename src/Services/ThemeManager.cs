@@ -101,7 +101,7 @@ namespace MonitorBounds.Services
                     }
                 }
             }
-            catch (Exception ex)
+            catch (Exception)
             {
             }
         }

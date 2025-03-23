@@ -1,6 +1,5 @@
 #nullable enable
 using System;
-using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
@@ -9,22 +8,18 @@ using System.Windows;
 using System.Windows.Input;
 using MonitorBounds.Models;
 using MonitorBounds.Services;
-using System.Linq;
 using MonitorBounds.Views;
-using System.Windows.Threading;
-using Microsoft.Win32;
 using System.IO;
 
 namespace MonitorBounds.ViewModels
 {
     // ViewModel for the main application window
-    public class MainViewModel : INotifyPropertyChanged, IDisposable
+    public class MainViewModel : INotifyPropertyChanged
     {
         private readonly WindowMonitorService _windowMonitorService;
         private readonly ConfigurationService _configurationService;
         private bool _isMonitoring;
         private ApplicationWindow? _selectedApplication;
-        private bool _isDisposed;
 
         public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -154,12 +149,6 @@ namespace MonitorBounds.ViewModels
         // Start monitoring window movements
         private void StartMonitoring()
         {
-            if (_isDisposed) 
-            {
-                return;
-            }
-
-            
             try
             {
                 // Explicitly ensure all target applications are properly registered
@@ -186,7 +175,7 @@ namespace MonitorBounds.ViewModels
                 // Save configuration
                 Task.Run(async () => await SaveConfigurationAsync()).ConfigureAwait(false);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 
                 // Reset state
@@ -199,19 +188,12 @@ namespace MonitorBounds.ViewModels
 
         private bool CanStartMonitoring()
         {
-            bool result = !_isDisposed && !IsMonitoring;
-            return result;
+            return !IsMonitoring;
         }
 
         // Stop monitoring window movements
         private void StopMonitoring()
         {
-            if (_isDisposed)
-            {
-                return;
-            }
-            
-            
             try
             {
                 // Stop the monitoring service
@@ -227,7 +209,7 @@ namespace MonitorBounds.ViewModels
                 // Save configuration
                 Task.Run(async () => await SaveConfigurationAsync()).ConfigureAwait(false);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 
                 // Rethrow to allow UI to show error
@@ -237,15 +219,12 @@ namespace MonitorBounds.ViewModels
 
         private bool CanStopMonitoring()
         {
-            bool result = !_isDisposed && IsMonitoring;
-            return result;
+            return IsMonitoring;
         }
 
         // Add a new target application
         private async Task AddApplicationAsync()
         {
-            if (_isDisposed) return;
-            
             try
             {
                 
@@ -312,7 +291,7 @@ namespace MonitorBounds.ViewModels
         // Edit the selected application
         private async Task EditApplicationAsync()
         {
-            if (_isDisposed || SelectedApplication == null) 
+            if (SelectedApplication == null) 
                 return;
                 
             await EditApplicationAsync(SelectedApplication);
@@ -322,9 +301,6 @@ namespace MonitorBounds.ViewModels
         {
             try
             {
-                if (_isDisposed) return false;
-                
-                
                 // Save selected application title pattern for comparison later
                 string originalTitlePattern = appToEdit.TitlePattern;
                 bool wasSelected = object.ReferenceEquals(SelectedApplication, appToEdit);
@@ -411,7 +387,7 @@ namespace MonitorBounds.ViewModels
                         {
                             _windowMonitorService.RemoveTargetApplication(appToEdit);
                         }
-                        catch (Exception ex)
+                        catch (Exception)
                         {
                         }
                         
@@ -455,13 +431,13 @@ namespace MonitorBounds.ViewModels
 
         private bool CanEditApplication()
         {
-            return !_isDisposed && SelectedApplication != null;
+            return SelectedApplication != null;
         }
 
         // Remove the selected application
         private async Task RemoveApplicationAsync()
         {
-            if (_isDisposed || SelectedApplication == null) 
+            if (SelectedApplication == null) 
                 return;
                 
             try
@@ -498,16 +474,15 @@ namespace MonitorBounds.ViewModels
 
         private bool CanRemoveApplication()
         {
-            return !_isDisposed && SelectedApplication != null;
+            return SelectedApplication != null;
         }
 
         // Toggle the active state of an application
         public void ToggleActiveState(ApplicationWindow app)
         {
-            if (app == null || _isDisposed)
+            if (app == null)
                 return;
 
-            
             try
             {
                 // Toggle application active state
@@ -545,11 +520,6 @@ namespace MonitorBounds.ViewModels
         // Saves the current configuration to the service
         public async Task SaveConfigurationAsync()
         {
-            if (_isDisposed)
-            {
-                return;
-            }
-            
             try
             {
                 
@@ -589,40 +559,6 @@ namespace MonitorBounds.ViewModels
                     MessageBoxImage.Error);
             }
         }
-
-        // Clean up resources and unsubscribe from events
-        public void Dispose()
-        {
-            Dispose(true);
-            GC.SuppressFinalize(this);
-        }
-        
-        protected virtual void Dispose(bool disposing)
-        {
-            if (_isDisposed)
-                return;
-                
-            if (disposing)
-            {
-                // Unsubscribe from events to prevent memory leaks
-                _windowMonitorService.WindowMoved -= OnWindowMoved;
-                _windowMonitorService.WindowRepositioned -= OnWindowRepositioned;
-                _configurationService.ConfigurationChanged -= OnConfigurationChanged;
-                
-                // Stop monitoring
-                if (IsMonitoring)
-                {
-                    StopMonitoring();
-                }
-                
-                // We should NOT clear the TargetApplications collection here
-                // as it will cause settings to be lost when the window is hidden to tray
-                // TargetApplications.Clear();
-            }
-            
-            _isDisposed = true;
-        }
-
         // Helper method to raise PropertyChanged events
         protected void OnPropertyChanged([CallerMemberName] string? propertyName = null)
         {
@@ -634,7 +570,7 @@ namespace MonitorBounds.ViewModels
         {
             return await Task.Run(() =>
             {
-                Window window = null;
+                Window? window = null;
                 
                 // Create and show the window on the UI thread
                 System.Windows.Application.Current.Dispatcher.Invoke(() =>

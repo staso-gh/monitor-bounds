@@ -1,8 +1,6 @@
 using System;
 using System.Windows;
-using System.Windows.Controls;
 using System.Runtime.InteropServices;
-using System.Windows.Forms;
 
 namespace MonitorBounds.Views
 {

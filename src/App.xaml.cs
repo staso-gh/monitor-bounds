@@ -19,8 +19,8 @@ namespace MonitorBounds
         public ThemeManager? ThemeManager => _themeManager;
         public bool IsDarkTheme => _themeManager?.IsDarkTheme ?? false;
 
-        private string iconName;
-        private string iconPath;
+        public string iconName = string.Empty;
+        public string iconPath = string.Empty;
 
         #region Application Startup
         protected override void OnStartup(StartupEventArgs e)

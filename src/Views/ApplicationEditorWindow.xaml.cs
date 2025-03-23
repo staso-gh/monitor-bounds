@@ -1,10 +1,7 @@
 using System;
-using System.Collections.Generic;
-using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Forms;
 using System.Windows.Media;
-using System.Drawing;
 using System.Runtime.InteropServices;
 using MonitorBounds.Models;
 

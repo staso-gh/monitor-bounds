@@ -2,22 +2,13 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
-using System.Diagnostics;
-using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
-using System.Windows.Data;
-using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
-using System.Windows.Media.Animation;
-using System.Windows.Media.Imaging;
-using System.Windows.Navigation;
 using System.Windows.Shapes;
 using System.Windows.Threading;
-using System.Xml.Serialization;
-using Microsoft.Win32;
 using MonitorBounds.Converters;
 using MonitorBounds.Models;
 using MonitorBounds.Services;
@@ -25,32 +16,31 @@ using MonitorBounds.ViewModels;
 
 namespace MonitorBounds
 {
-    public partial class MainWindow : Window, IDisposable
+    public partial class MainWindow : Window
     {
         // Services and view model
         private readonly WindowMonitorService _windowMonitorService;
         private readonly ConfigurationService _configurationService;
         private MainViewModel _viewModel;
-        private ThemeManager _themeManager;
+        private ThemeManager? _themeManager;
         private bool _isDarkTheme;
-        private bool _isDisposed;
 
         // Dictionary to store event handlers for easier management
         private readonly Dictionary<string, Delegate> _eventHandlers = new Dictionary<string, Delegate>();
 
         // Cached UI elements (using FindName when possible)
-        private DataGrid _applicationsDataGrid;
-        private Border _mainWindowBorder;
-        private Border _dataGridBorder;
-        private Path _themeIconPath;
+        private DataGrid? _applicationsDataGrid;
+        private Border? _mainWindowBorder;
+        private Border? _dataGridBorder;
+        private Path? _themeIconPath;
 
         // Cached brushes for themes
-        private SolidColorBrush _lightBackgroundBrush;
-        private SolidColorBrush _lightForegroundBrush;
-        private SolidColorBrush _lightDataGridBackgroundBrush;
-        private SolidColorBrush _darkBackgroundBrush;
-        private SolidColorBrush _darkForegroundBrush;
-        private SolidColorBrush _darkDataGridBackgroundBrush;
+        private SolidColorBrush? _lightBackgroundBrush;
+        private SolidColorBrush? _lightForegroundBrush;
+        private SolidColorBrush? _lightDataGridBackgroundBrush;
+        private SolidColorBrush? _darkBackgroundBrush;
+        private SolidColorBrush? _darkForegroundBrush;
+        private SolidColorBrush? _darkDataGridBackgroundBrush;
 
         // Theme colors
         private readonly Color _lightBackgroundColor = Color.FromRgb(248, 248, 248);
@@ -61,14 +51,14 @@ namespace MonitorBounds
         private readonly Color _darkDataGridBackgroundColor = Color.FromRgb(60, 60, 62);
 
         // Cached button templates (for reuse across buttons)
-        private ControlTemplate _lightButtonTemplate;
-        private ControlTemplate _darkButtonTemplate;
+        private ControlTemplate? _lightButtonTemplate;
+        private ControlTemplate? _darkButtonTemplate;
 
         // Lazy-loaded row styles
-        private Lazy<Style> _lightRowStyle;
-        private Lazy<Style> _darkRowStyle;
-        private Style _originalLightRowStyle;
-        private Style _originalDarkRowStyle;
+        private Lazy<Style>? _lightRowStyle;
+        private Lazy<Style>? _darkRowStyle;
+        private Style? _originalLightRowStyle;
+        private Style? _originalDarkRowStyle;
 
         public MainWindow()
         {
@@ -174,8 +164,8 @@ namespace MonitorBounds
         private void InitializeLazyResources()
         {
             // Lazy load DataGrid row styles from resources
-            _lightRowStyle = new Lazy<Style>(() => Resources["DataGridRowStyleLight"] as Style);
-            _darkRowStyle = new Lazy<Style>(() => Resources["DataGridRowStyleDark"] as Style);
+            _lightRowStyle = new Lazy<Style>(() => Resources["DataGridRowStyleLight"] as Style ?? new Style());
+            _darkRowStyle = new Lazy<Style>(() => Resources["DataGridRowStyleDark"] as Style ?? new Style());
         }
 
         private void SetupEventHandlers()
@@ -234,7 +224,7 @@ namespace MonitorBounds
 
         #region Visual Tree Helpers
 
-        private static T FindVisualChild<T>(DependencyObject parent) where T : DependencyObject
+        private static T? FindVisualChild<T>(DependencyObject parent) where T : DependencyObject
         {
             for (int i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
             {
@@ -302,12 +292,15 @@ namespace MonitorBounds
             // Update DataGrid styling
             if (_applicationsDataGrid != null)
             {
-                _applicationsDataGrid.RowStyle = _isDarkTheme ? _darkRowStyle.Value : _lightRowStyle.Value;
+                if (_darkRowStyle != null && _lightRowStyle != null)
+                {
+                    _applicationsDataGrid.RowStyle = _isDarkTheme ? _darkRowStyle.Value : _lightRowStyle.Value;
+                }
                 _applicationsDataGrid.AlternatingRowBackground = new SolidColorBrush(_isDarkTheme
                     ? Color.FromRgb(50, 50, 52)
                     : Color.FromRgb(249, 249, 249));
 
-                if (_dataGridBorder != null)
+                if (_dataGridBorder != null && _darkDataGridBackgroundBrush != null && _lightDataGridBackgroundBrush != null)
                 {
                     _dataGridBorder.Background = _isDarkTheme ? _darkDataGridBackgroundBrush : _lightDataGridBackgroundBrush;
                     _dataGridBorder.BorderBrush = new SolidColorBrush(_isDarkTheme
@@ -492,10 +485,7 @@ namespace MonitorBounds
 
         private void DataGrid_PreviewMouseDown(DataGrid dataGrid, MouseButtonEventArgs args)
         {
-            if (_isDisposed)
-                return;
-
-            var hitTestResult = VisualTreeHelper.HitTest(dataGrid, args.GetPosition(dataGrid));
+            HitTestResult hitTestResult = VisualTreeHelper.HitTest(dataGrid, args.GetPosition(dataGrid));
             if (hitTestResult != null)
             {
                 DependencyObject depObj = hitTestResult.VisualHit;
@@ -517,9 +507,6 @@ namespace MonitorBounds
 
         private void DataGrid_PreviewKeyDown(DataGrid dataGrid, KeyEventArgs args)
         {
-            if (_isDisposed)
-                return;
-
             if (args.Key == Key.Return || args.Key == Key.Enter)
             {
                 if (_viewModel.SelectedApplication != null && _viewModel.EditApplicationCommand.CanExecute(null))
@@ -538,7 +525,10 @@ namespace MonitorBounds
             }
             else if (args.Key == Key.Space)
             {
-                _viewModel.ToggleActiveState(_viewModel.SelectedApplication);
+                if (_viewModel.SelectedApplication != null)
+                {
+                    _viewModel.ToggleActiveState(_viewModel.SelectedApplication);
+                }
                 args.Handled = true;
             }
             else if (args.Key == Key.Right || args.Key == Key.Left)
@@ -549,9 +539,6 @@ namespace MonitorBounds
 
         private void DataGrid_ContextMenuOpening(DataGrid dataGrid, object sender, ContextMenuEventArgs args)
         {
-            if (_isDisposed)
-                return;
-
             try
             {
                 Point mousePosition = Mouse.GetPosition(dataGrid);
@@ -570,7 +557,7 @@ namespace MonitorBounds
                     }
                 }
             }
-            catch (Exception ex)
+            catch (Exception)
             {
             }
         }
@@ -630,63 +617,8 @@ namespace MonitorBounds
         {
             _themeManager?.ToggleTheme();
         }
-
-        public void Dispose()
-        {
-            Dispose(true);
-            GC.SuppressFinalize(this);
-        }
-
-        protected virtual void Dispose(bool disposing)
-        {
-            if (_isDisposed)
-                return;
-
-            if (disposing)
-            {
-                // Unsubscribe and dispose view model
-                if (_viewModel != null)
-                {
-                    _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
-                    _viewModel.Dispose();
-                    _viewModel = null;
-                }
-
-                // Unsubscribe theme event
-                if (_themeManager != null && _eventHandlers.ContainsKey("ThemeChanged"))
-                {
-                    _themeManager.ThemeChanged -= (EventHandler<bool>)_eventHandlers["ThemeChanged"];
-                }
-
-                // Remove window event handlers
-                if (_eventHandlers.ContainsKey("MouseLeftButtonDown"))
-                    this.MouseLeftButtonDown -= (MouseButtonEventHandler)_eventHandlers["MouseLeftButtonDown"];
-                if (_eventHandlers.ContainsKey("Loaded"))
-                    this.Loaded -= (RoutedEventHandler)_eventHandlers["Loaded"];
-
-                // Remove DataGrid event handlers
-                if (_applicationsDataGrid != null)
-                {
-                    if (_eventHandlers.ContainsKey("DataGridPreviewMouseDown"))
-                        _applicationsDataGrid.PreviewMouseDown -= (MouseButtonEventHandler)_eventHandlers["DataGridPreviewMouseDown"];
-                    if (_eventHandlers.ContainsKey("DataGridPreviewKeyDown"))
-                        _applicationsDataGrid.PreviewKeyDown -= (KeyEventHandler)_eventHandlers["DataGridPreviewKeyDown"];
-                    if (_eventHandlers.ContainsKey("DataGridContextMenuOpening"))
-                        _applicationsDataGrid.ContextMenuOpening -= (ContextMenuEventHandler)_eventHandlers["DataGridContextMenuOpening"];
-                    if (_eventHandlers.ContainsKey("GridLoaded"))
-                        _applicationsDataGrid.Loaded -= (RoutedEventHandler)_eventHandlers["GridLoaded"];
-                }
-
-                _windowMonitorService?.Dispose();
-                _eventHandlers.Clear();
-            }
-
-            _isDisposed = true;
-        }
-
         protected override void OnClosed(EventArgs e)
         {
-            Dispose(true);
             base.OnClosed(e);
         }
 
@@ -694,17 +626,23 @@ namespace MonitorBounds
 
         #region ThemeManager Event Handler
 
-        private void ThemeManager_ThemeChanged(object sender, bool isDarkTheme)
+        private void ThemeManager_ThemeChanged(object? sender, bool isDarkTheme)
         {
+            // Apply theme and update icon
+            _isDarkTheme = isDarkTheme;
             ApplyTheme(isDarkTheme);
+            UpdateThemeToggleIcon(isDarkTheme);
         }
 
         #endregion
 
         #region ViewModel Property Change Handler
 
-        private void OnViewModelPropertyChanged(object sender, PropertyChangedEventArgs e)
+        private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
         {
+            if (e == null)
+                return;
+
             if (e.PropertyName == nameof(_viewModel.IsMonitoring))
             {
                 // Update monitoring toggle button or other UI elements if needed

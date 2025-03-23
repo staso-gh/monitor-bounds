@@ -23,8 +23,31 @@ namespace MonitorBounds.Services
         private bool _disposed = false;
         private const int POLLING_INTERVAL_MS = 50;
 
+        // Reusable objects to reduce allocations
+        private readonly List<ApplicationWindow> _activeTargets = new();
+        private readonly List<IntPtr> _windowHandles = new(16); // Reduced initial capacity
+        private readonly Dictionary<IntPtr, string> _windowTitleCache = new(16); // Reduced initial capacity
+        private readonly List<IntPtr> _invalidHandles = new(8);
+        private readonly StringBuilder _titleBuilder = new(256);
+        private readonly StringBuilder _classNameBuilder = new(256);
+
+        // Static arrays to avoid recreating them on each call
+        private static readonly string[] _systemClassNames = {
+            "Progman", "WorkerW", "Shell_TrayWnd", "DV2ControlHost",
+            "Windows.UI.Core.CoreWindow", "ApplicationFrameWindow"
+        };
+
+        private static readonly string[] _systemTitles = {
+            "Program Manager", "Windows Shell Experience Host",
+            "Task View", "Task Switching", "Start"
+        };
+
         public event EventHandler<WindowRepositionedEventArgs> WindowRepositioned;
         public event EventHandler<WindowMovedEventArgs> WindowMoved;
+
+        // Reusable event args objects
+        private readonly WindowMovedEventArgs _movedEventArgs = new();
+        private readonly WindowRepositionedEventArgs _repositionedEventArgs = new();
 
         public WindowMonitorService()
         {
@@ -51,6 +74,46 @@ namespace MonitorBounds.Services
             lock (_targetApplications)
             {
                 _targetApplications.Remove(app);
+                
+                // Clean up any window position tracking for windows that no longer match any rules
+                CleanupOrphanedWindows();
+            }
+        }
+
+        private void CleanupOrphanedWindows()
+        {
+            if (_disposed || _lastWindowPositions.Count == 0) return;
+            
+            _invalidHandles.Clear();
+            
+            foreach (var hwnd in _lastWindowPositions.Keys)
+            {
+                bool stillNeeded = false;
+                string title = GetWindowTitle(hwnd);
+                
+                if (!string.IsNullOrWhiteSpace(title) && NativeMethods.IsWindow(hwnd))
+                {
+                    // Check if any active rule still matches this window
+                    foreach (var app in _targetApplications)
+                    {
+                        if (app.IsActive && app.Matches(hwnd, title))
+                        {
+                            stillNeeded = true;
+                            break;
+                        }
+                    }
+                }
+                
+                if (!stillNeeded)
+                {
+                    _invalidHandles.Add(hwnd);
+                }
+            }
+            
+            // Remove windows that don't match any rules
+            foreach (var handle in _invalidHandles)
+            {
+                _lastWindowPositions.Remove(handle);
             }
         }
 
@@ -65,6 +128,7 @@ namespace MonitorBounds.Services
             if (_disposed) return;
             _monitorTimer.Stop();
             _lastWindowPositions.Clear();
+            _windowTitleCache.Clear();
         }
 
         public void SetDormantMode(bool isDormant)
@@ -81,8 +145,9 @@ namespace MonitorBounds.Services
 
             try
             {
-                // Manually iterate through _targetApplications to avoid LINQ overhead
-                List<ApplicationWindow> activeTargets = new(_targetApplications.Count);
+                // Reuse active targets list instead of creating a new one
+                _activeTargets.Clear();
+                
                 lock (_targetApplications)
                 {
                     for (int i = 0; i < _targetApplications.Count; i++)
@@ -90,67 +155,39 @@ namespace MonitorBounds.Services
                         var app = _targetApplications[i];
                         if (app.IsActive && app.RestrictToMonitor.HasValue)
                         {
-                            activeTargets.Add(app);
+                            _activeTargets.Add(app);
                         }
                     }
                 }
-                if (activeTargets.Count == 0)
+                
+                if (_activeTargets.Count == 0)
                     return;
 
-                // Preallocate a list for window handles
-                var windowHandles = new List<IntPtr>(64);
+                // Clear existing collections to reuse them
+                _windowHandles.Clear();
+                _windowTitleCache.Clear();
 
-                // Cache GetWindowTitle calls to avoid duplicate work
-                var windowTitleCache = new Dictionary<IntPtr, string>(64);
-
-                // Enumerate windows only once, caching titles along the way
-                NativeMethods.EnumWindows((hWnd, lParam) =>
+                // Track all windows that match our active target applications
+                foreach (var app in _activeTargets)
                 {
-                    if (!NativeMethods.IsWindowVisible(hWnd))
-                        return true;
+                    FindMatchingWindows(app);
+                }
 
-                    if (!windowTitleCache.TryGetValue(hWnd, out string title))
-                    {
-                        title = GetWindowTitle(hWnd);
-                        windowTitleCache[hWnd] = title;
-                    }
-
-                    if (!string.IsNullOrWhiteSpace(title) && !ShouldIgnoreSystemWindow(hWnd, title))
-                    {
-                        windowHandles.Add(hWnd);
-                    }
-                    return true;
-                }, IntPtr.Zero);
-
-                // Process each window using the cached title value
-                for (int i = 0; i < windowHandles.Count; i++)
+                // Process each window that matches our target applications
+                for (int i = 0; i < _windowHandles.Count; i++)
                 {
-                    IntPtr hwnd = windowHandles[i];
-                    if (!windowTitleCache.TryGetValue(hwnd, out string title))
+                    IntPtr hwnd = _windowHandles[i];
+                    if (!_windowTitleCache.TryGetValue(hwnd, out string title))
                     {
-                        title = GetWindowTitle(hwnd);
+                        continue; // Skip if title not found (unlikely but safe)
                     }
-                    if (string.IsNullOrWhiteSpace(title) || !NativeMethods.IsWindow(hwnd))
-                        continue;
-
-                    // Use a simple loop for matching instead of LINQ
-                    ApplicationWindow matchingApp = null;
-                    for (int j = 0; j < activeTargets.Count; j++)
-                    {
-                        if (activeTargets[j].Matches(hwnd, title))
-                        {
-                            matchingApp = activeTargets[j];
-                            break;
-                        }
-                    }
+                    
+                    // Find matching app
+                    ApplicationWindow matchingApp = FindMatchingApp(hwnd, title);
 
                     if (matchingApp != null)
                     {
                         ProcessTargetWindow(hwnd, title, matchingApp);
-                    }
-                    else
-                    {
-                        HandleWindowMovement(hwnd);
                     }
                 }
 
@@ -162,8 +199,44 @@ namespace MonitorBounds.Services
             }
         }
 
+        private void FindMatchingWindows(ApplicationWindow app)
+        {
+            NativeMethods.EnumWindows((hWnd, lParam) =>
+            {
+                if (!NativeMethods.IsWindowVisible(hWnd) || !NativeMethods.IsWindow(hWnd))
+                    return true;
+
+                string title = GetWindowTitle(hWnd);
+                if (!string.IsNullOrWhiteSpace(title) && 
+                    !ShouldIgnoreSystemWindow(hWnd, title) && 
+                    app.Matches(hWnd, title))
+                {
+                    // Only add if not already in the list
+                    if (!_windowHandles.Contains(hWnd))
+                    {
+                        _windowHandles.Add(hWnd);
+                        _windowTitleCache[hWnd] = title;
+                    }
+                }
+                return true;
+            }, IntPtr.Zero);
+        }
+
+        private ApplicationWindow FindMatchingApp(IntPtr hwnd, string title)
+        {
+            for (int j = 0; j < _activeTargets.Count; j++)
+            {
+                if (_activeTargets[j].Matches(hwnd, title))
+                {
+                    return _activeTargets[j];
+                }
+            }
+            return null;
+        }
+
         private void ProcessTargetWindow(IntPtr hwnd, string windowTitle, ApplicationWindow matchingApp)
         {
+            // Use a local variable instead of readonly field for out parameter
             if (!NativeMethods.GetWindowRect(hwnd, out NativeMethods.RECT windowRect))
                 return;
 
@@ -181,21 +254,23 @@ namespace MonitorBounds.Services
 
             if (needsRepositioning)
             {
-                NativeMethods.RECT lastRect = new();
-                _lastWindowPositions.TryGetValue(hwnd, out lastRect);
+                if (!_lastWindowPositions.TryGetValue(hwnd, out var lastRect))
+                {
+                    lastRect = new NativeMethods.RECT();
+                }
                 ForceWindowToMonitor(hwnd, windowTitle, windowRect, lastRect, targetMonitorIndex, targetBounds);
             }
             else
             {
                 // Track movement even if window is on the correct monitor
-                HandleWindowMovement(hwnd);
+                TrackWindowMovement(hwnd, windowTitle, windowRect);
             }
         }
 
         private bool IsWindowFullyOnMonitor(NativeMethods.RECT windowRect, System.Drawing.Rectangle monitorBounds)
         {
             // Allow a small margin (10 pixels) to avoid constant repositioning for slight offsets
-            int margin = 10;
+            const int margin = 10;
             return windowRect.Left >= monitorBounds.Left - margin &&
                    windowRect.Right <= monitorBounds.Right + margin &&
                    windowRect.Top >= monitorBounds.Top - margin &&
@@ -245,7 +320,7 @@ namespace MonitorBounds.Services
                 newY = (int)(targetBounds.Top + targetBounds.Height * relativeY);
 
                 // Ensure window fits within the target monitor
-                int margin = 5;
+                const int margin = 5;
                 newX = Math.Max(targetBounds.Left + margin, Math.Min(targetBounds.Right - windowWidth - margin, newX));
                 newY = Math.Max(targetBounds.Top + margin, Math.Min(targetBounds.Bottom - windowHeight - margin, newY));
             }
@@ -278,7 +353,7 @@ namespace MonitorBounds.Services
                 return;
 
             // Update last position and notify listeners
-            NativeMethods.RECT newRect = new()
+            _lastWindowPositions[hwnd] = new NativeMethods.RECT
             {
                 Left = newX,
                 Top = newY,
@@ -286,28 +361,18 @@ namespace MonitorBounds.Services
                 Bottom = newY + windowHeight
             };
 
-            _lastWindowPositions[hwnd] = newRect;
+            // Reuse event args object
+            _repositionedEventArgs.WindowHandle = hwnd;
+            _repositionedEventArgs.WindowTitle = windowTitle;
+            _repositionedEventArgs.OldPosition = new System.Windows.Point(windowRect.Left, windowRect.Top);
+            _repositionedEventArgs.NewPosition = new System.Windows.Point(newX, newY);
+            _repositionedEventArgs.MonitorIndex = targetMonitorIndex;
 
-            WindowRepositioned?.Invoke(this, new WindowRepositionedEventArgs
-            {
-                WindowHandle = hwnd,
-                WindowTitle = windowTitle,
-                OldPosition = new System.Windows.Point(windowRect.Left, windowRect.Top),
-                NewPosition = new System.Windows.Point(newX, newY),
-                MonitorIndex = targetMonitorIndex
-            });
+            WindowRepositioned?.Invoke(this, _repositionedEventArgs);
         }
 
-        private void HandleWindowMovement(IntPtr hwnd)
+        private void TrackWindowMovement(IntPtr hwnd, string windowTitle, NativeMethods.RECT windowRect)
         {
-            string windowTitle = GetWindowTitle(hwnd);
-
-            if (string.IsNullOrWhiteSpace(windowTitle) || ShouldIgnoreSystemWindow(hwnd, windowTitle))
-                return;
-
-            if (!NativeMethods.GetWindowRect(hwnd, out NativeMethods.RECT windowRect))
-                return;
-
             bool hasMoved = true;
             if (_lastWindowPositions.TryGetValue(hwnd, out var storedRect))
             {
@@ -322,14 +387,12 @@ namespace MonitorBounds.Services
 
             if (hasMoved)
             {
-                var movedArgs = new WindowMovedEventArgs
-                {
-                    WindowHandle = hwnd,
-                    WindowTitle = windowTitle,
-                    WindowRect = windowRect
-                };
+                // Reuse event args object
+                _movedEventArgs.WindowHandle = hwnd;
+                _movedEventArgs.WindowTitle = windowTitle;
+                _movedEventArgs.WindowRect = windowRect;
 
-                WindowMoved?.Invoke(this, movedArgs);
+                WindowMoved?.Invoke(this, _movedEventArgs);
             }
         }
 
@@ -337,30 +400,36 @@ namespace MonitorBounds.Services
         {
             if (_disposed) return;
 
-            // Reuse a single list to hold invalid handles
-            var invalidHandles = new List<IntPtr>(_lastWindowPositions.Count);
+            // Reuse invalid handles list
+            _invalidHandles.Clear();
+            
             foreach (var handle in _lastWindowPositions.Keys)
             {
                 if (!NativeMethods.IsWindow(handle))
                 {
-                    invalidHandles.Add(handle);
+                    _invalidHandles.Add(handle);
                 }
             }
-            for (int i = 0; i < invalidHandles.Count; i++)
+            
+            for (int i = 0; i < _invalidHandles.Count; i++)
             {
-                _lastWindowPositions.Remove(invalidHandles[i]);
+                _lastWindowPositions.Remove(_invalidHandles[i]);
             }
         }
 
         private string GetWindowTitle(IntPtr hWnd)
         {
-            // Use a fixed-size StringBuilder to reduce allocations
-            StringBuilder titleBuilder = new(256);
+            // Reuse StringBuilder instead of creating a new one each time
+            _titleBuilder.Clear();
             int length = NativeMethods.GetWindowTextLength(hWnd);
             if (length > 0)
             {
-                NativeMethods.GetWindowText(hWnd, titleBuilder, length + 1);
-                return titleBuilder.ToString();
+                if (length >= _titleBuilder.Capacity)
+                {
+                    _titleBuilder.Capacity = length + 1;
+                }
+                NativeMethods.GetWindowText(hWnd, _titleBuilder, length + 1);
+                return _titleBuilder.ToString();
             }
             return string.Empty;
         }
@@ -370,38 +439,35 @@ namespace MonitorBounds.Services
             if (string.IsNullOrWhiteSpace(windowTitle))
                 return true;
 
-            string className = NativeMethods.GetClassNameFromHandle(windowHandle);
+            string className = GetClassNameFromHandle(windowHandle);
 
-            // These arrays are defined as static to avoid recreating them on each call
-            ReadOnlySpan<string> systemClassNames = new[]
+            // Check against static arrays
+            for (int i = 0; i < _systemClassNames.Length; i++)
             {
-                "Progman", "WorkerW", "Shell_TrayWnd", "DV2ControlHost",
-                "Windows.UI.Core.CoreWindow", "ApplicationFrameWindow"
-            };
-
-            ReadOnlySpan<string> systemTitles = new[]
-            {
-                "Program Manager", "Windows Shell Experience Host",
-                "Task View", "Task Switching", "Start"
-            };
-
-            foreach (var systemClass in systemClassNames)
-            {
-                if (className.Contains(systemClass))
+                if (className.Contains(_systemClassNames[i]))
                     return true;
             }
 
-            foreach (var sysTitle in systemTitles)
+            for (int i = 0; i < _systemTitles.Length; i++)
             {
-                if (windowTitle.Contains(sysTitle))
+                if (windowTitle.Contains(_systemTitles[i]))
                     return true;
             }
 
             return false;
         }
 
+        private string GetClassNameFromHandle(IntPtr hWnd)
+        {
+            // Reuse StringBuilder
+            _classNameBuilder.Clear();
+            NativeMethods.GetClassName(hWnd, _classNameBuilder, _classNameBuilder.Capacity);
+            return _classNameBuilder.ToString();
+        }
+
         private Screen GetMonitorFromWindow(IntPtr hwnd)
         {
+            // Use a local variable for out parameter
             if (!NativeMethods.GetWindowRect(hwnd, out NativeMethods.RECT rect))
                 return null;
 
@@ -447,6 +513,10 @@ namespace MonitorBounds.Services
             _monitorTimer.Dispose();
             _lastWindowPositions.Clear();
             _targetApplications.Clear();
+            _activeTargets.Clear();
+            _windowHandles.Clear();
+            _windowTitleCache.Clear();
+            _invalidHandles.Clear();
         }
     }
 
@@ -545,11 +615,17 @@ namespace MonitorBounds.Services
             public IntPtr dwExtraInfo;
         }
 
-        public static string GetClassNameFromHandle(IntPtr hWnd)
+        // Reuse a single INPUT array for mouse operations
+        private static readonly INPUT[] _inputs = new INPUT[1];
+
+        static NativeMethods()
         {
-            StringBuilder className = new(256);
-            GetClassName(hWnd, className, className.Capacity);
-            return className.ToString();
+            // Pre-initialize the INPUT structure
+            _inputs[0].type = INPUT_MOUSE;
+            _inputs[0].mi.dx = 0;
+            _inputs[0].mi.dy = 0;
+            _inputs[0].mi.mouseData = 0;
+            _inputs[0].mi.time = 0;
         }
 
         public static void StopWindowDrag(IntPtr hWnd)
@@ -561,15 +637,9 @@ namespace MonitorBounds.Services
 
         public static void SimulateMouseLeftButtonUp()
         {
-            INPUT[] inputs = new INPUT[1];
-            inputs[0].type = INPUT_MOUSE;
-            inputs[0].mi.dx = 0;
-            inputs[0].mi.dy = 0;
-            inputs[0].mi.mouseData = 0;
-            inputs[0].mi.dwFlags = MOUSEEVENTF_LEFTUP;
-            inputs[0].mi.time = 0;
-            inputs[0].mi.dwExtraInfo = GetMessageExtraInfo();
-            SendInput(1, inputs, Marshal.SizeOf(typeof(INPUT)));
+            _inputs[0].mi.dwFlags = MOUSEEVENTF_LEFTUP;
+            _inputs[0].mi.dwExtraInfo = GetMessageExtraInfo();
+            SendInput(1, _inputs, Marshal.SizeOf(typeof(INPUT)));
         }
     }
 }
