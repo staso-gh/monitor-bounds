@@ -5,8 +5,10 @@ using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Effects;
 using System.Windows.Shapes;
 using System.Windows.Threading;
 using MonitorBounds.Converters;
@@ -21,6 +23,7 @@ namespace MonitorBounds
         // Services and view model
         private readonly WindowMonitorService _windowMonitorService;
         private readonly ConfigurationService _configurationService;
+        private readonly StartupManager _startupManager;
         private MainViewModel _viewModel;
         private ThemeManager? _themeManager;
         private bool _isDarkTheme;
@@ -86,7 +89,8 @@ namespace MonitorBounds
             // Initialize services and view model
             _configurationService = new ConfigurationService();
             _windowMonitorService = new WindowMonitorService();
-            _viewModel = new MainViewModel(_windowMonitorService, _configurationService);
+            _startupManager = new StartupManager();
+            _viewModel = new MainViewModel(_windowMonitorService, _configurationService, _startupManager);
             _viewModel.PropertyChanged += OnViewModelPropertyChanged;
             DataContext = _viewModel;
 
@@ -180,6 +184,7 @@ namespace MonitorBounds
                 _eventHandlers["Loaded"] = new RoutedEventHandler((s, e) =>
                 {
                     ApplyTheme(_themeManager.IsDarkTheme);
+                    
                     if (_viewModel.IsMonitoring)
                     {
                         Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(UpdateMonitoringToggleButton));
@@ -328,12 +333,21 @@ namespace MonitorBounds
 
             UpdateMonitoringToggleButton();
             UpdateThemeToggleIcon(_isDarkTheme);
+            
+            // Startup button appearance is now handled through XAML data binding
         }
 
         private void UpdateThemeToggleIcon(bool isDarkTheme)
         {
             if (_themeIconPath != null)
             {
+                // Change icon to sun in dark theme, moon in light theme
+                var themeGeometry = Resources[isDarkTheme ? "SunIconGeometry" : "MoonIconGeometry"] as Geometry;
+                if (themeGeometry != null)
+                {
+                    _themeIconPath.Data = themeGeometry;
+                }
+                
                 _themeIconPath.Fill = new SolidColorBrush(isDarkTheme ? Colors.White : Colors.Black);
             }
         }
@@ -353,7 +367,11 @@ namespace MonitorBounds
         private void UpdateButtonStyle(Button button)
         {
             // If the button is one of the special ones, leave its original style intact.
-            if (button.Name == "AddButton" || button.Name == "EditButton" || button.Name == "RemoveButton")
+            if (button.Name == "AddButton" || 
+                button.Name == "EditButton" || 
+                button.Name == "RemoveButton" ||
+                button.Name == "StartupButton" ||
+                button.Name == "ThemeToggleButton")
             {
                 return;
             }
@@ -617,6 +635,19 @@ namespace MonitorBounds
         {
             _themeManager?.ToggleTheme();
         }
+
+        private void StartupButton_Click(object sender, RoutedEventArgs e)
+        {
+            // Toggle the startup setting
+            bool currentValue = _viewModel.RunAtWindowsStartup;
+            _viewModel.RunAtWindowsStartup = !currentValue;
+            
+            // Verify the change for debugging
+            System.Diagnostics.Debug.WriteLine($"Toggled RunAtWindowsStartup from {currentValue} to {_viewModel.RunAtWindowsStartup}");
+            
+            // No need to manually update appearance - data binding will handle it
+        }
+
         protected override void OnClosed(EventArgs e)
         {
             base.OnClosed(e);

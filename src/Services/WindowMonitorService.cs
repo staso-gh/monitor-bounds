@@ -207,15 +207,26 @@ namespace MonitorBounds.Services
                     return true;
 
                 string title = GetWindowTitle(hWnd);
-                if (!string.IsNullOrWhiteSpace(title) && 
-                    !ShouldIgnoreSystemWindow(hWnd, title) && 
-                    app.Matches(hWnd, title))
+                string processName = null;
+                
+                // Only get process name if we're using process name matching
+                if (app.UseProcessNameMatching)
                 {
-                    // Only add if not already in the list
-                    if (!_windowHandles.Contains(hWnd))
+                    processName = GetProcessNameFromHandle(hWnd);
+                }
+                
+                if ((!app.UseProcessNameMatching && !string.IsNullOrWhiteSpace(title)) || 
+                    (app.UseProcessNameMatching && !string.IsNullOrWhiteSpace(processName)))
+                {
+                    if (!ShouldIgnoreSystemWindow(hWnd, title) && 
+                        app.Matches(hWnd, title, processName))
                     {
-                        _windowHandles.Add(hWnd);
-                        _windowTitleCache[hWnd] = title;
+                        // Only add if not already in the list
+                        if (!_windowHandles.Contains(hWnd))
+                        {
+                            _windowHandles.Add(hWnd);
+                            _windowTitleCache[hWnd] = title;
+                        }
                     }
                 }
                 return true;
@@ -226,9 +237,18 @@ namespace MonitorBounds.Services
         {
             for (int j = 0; j < _activeTargets.Count; j++)
             {
-                if (_activeTargets[j].Matches(hwnd, title))
+                var app = _activeTargets[j];
+                string processName = null;
+                
+                // Only get process name if we're using process name matching
+                if (app.UseProcessNameMatching)
                 {
-                    return _activeTargets[j];
+                    processName = GetProcessNameFromHandle(hwnd);
+                }
+                
+                if (app.Matches(hwnd, title, processName))
+                {
+                    return app;
                 }
             }
             return null;
@@ -251,8 +271,12 @@ namespace MonitorBounds.Services
 
             // Check if window is on the correct monitor
             bool needsRepositioning = !IsWindowFullyOnMonitor(windowRect, targetBounds);
+            
+            // Also check if window exceeds monitor dimensions
+            bool isOversized = (windowRect.Right - windowRect.Left) > targetBounds.Width || 
+                             (windowRect.Bottom - windowRect.Top) > targetBounds.Height;
 
-            if (needsRepositioning)
+            if (needsRepositioning || isOversized)
             {
                 if (!_lastWindowPositions.TryGetValue(hwnd, out var lastRect))
                 {
@@ -271,10 +295,57 @@ namespace MonitorBounds.Services
         {
             // Allow a small margin (10 pixels) to avoid constant repositioning for slight offsets
             const int margin = 10;
-            return windowRect.Left >= monitorBounds.Left - margin &&
+            
+            // Check if window is within the monitor bounds
+            bool isWithinBounds = windowRect.Left >= monitorBounds.Left - margin &&
                    windowRect.Right <= monitorBounds.Right + margin &&
                    windowRect.Top >= monitorBounds.Top - margin &&
                    windowRect.Bottom <= monitorBounds.Bottom + margin;
+            
+            if (isWithinBounds)
+                return true;
+                
+            // If window is outside bounds, check if it's near a border that's shared with another monitor
+            bool nearLeftBorder = Math.Abs(windowRect.Left - monitorBounds.Left) < margin;
+            bool nearRightBorder = Math.Abs(windowRect.Right - monitorBounds.Right) < margin;
+            bool nearTopBorder = Math.Abs(windowRect.Top - monitorBounds.Top) < margin;
+            bool nearBottomBorder = Math.Abs(windowRect.Bottom - monitorBounds.Bottom) < margin;
+            
+            if (!(nearLeftBorder || nearRightBorder || nearTopBorder || nearBottomBorder))
+                return false;
+                
+            // Check if there's another monitor that shares this boundary
+            foreach (Screen screen in Screen.AllScreens)
+            {
+                if (screen.Bounds.Equals(monitorBounds))
+                    continue; // Skip the current monitor
+                    
+                // Check if this other monitor shares a boundary with current monitor
+                bool sharesLeftBorder = nearLeftBorder && 
+                    Math.Abs(screen.Bounds.Right - monitorBounds.Left) < margin &&
+                    !(screen.Bounds.Bottom < monitorBounds.Top - margin || 
+                      screen.Bounds.Top > monitorBounds.Bottom + margin);
+                      
+                bool sharesRightBorder = nearRightBorder && 
+                    Math.Abs(screen.Bounds.Left - monitorBounds.Right) < margin &&
+                    !(screen.Bounds.Bottom < monitorBounds.Top - margin || 
+                      screen.Bounds.Top > monitorBounds.Bottom + margin);
+                      
+                bool sharesTopBorder = nearTopBorder && 
+                    Math.Abs(screen.Bounds.Bottom - monitorBounds.Top) < margin &&
+                    !(screen.Bounds.Right < monitorBounds.Left - margin || 
+                      screen.Bounds.Left > monitorBounds.Right + margin);
+                      
+                bool sharesBottomBorder = nearBottomBorder && 
+                    Math.Abs(screen.Bounds.Top - monitorBounds.Bottom) < margin &&
+                    !(screen.Bounds.Right < monitorBounds.Left - margin || 
+                      screen.Bounds.Left > monitorBounds.Right + margin);
+                      
+                if (sharesLeftBorder || sharesRightBorder || sharesTopBorder || sharesBottomBorder)
+                    return false; // Window is near a shared border, so don't reposition
+            }
+            
+            return false; // Window is outside bounds and not near a shared border
         }
 
         private void ForceWindowToMonitor(IntPtr hwnd, string windowTitle, NativeMethods.RECT windowRect,
@@ -286,6 +357,17 @@ namespace MonitorBounds.Services
             int windowWidth = windowRect.Right - windowRect.Left;
             int windowHeight = windowRect.Bottom - windowRect.Top;
             int newX, newY;
+            
+            // Check if window dimensions exceed monitor dimensions and adjust if necessary
+            if (windowWidth > targetBounds.Width)
+            {
+                windowWidth = targetBounds.Width;
+            }
+            
+            if (windowHeight > targetBounds.Height)
+            {
+                windowHeight = targetBounds.Height;
+            }
 
             // Stop any active window drag
             NativeMethods.StopWindowDrag(hwnd);
@@ -465,6 +547,25 @@ namespace MonitorBounds.Services
             return _classNameBuilder.ToString();
         }
 
+        private string GetProcessNameFromHandle(IntPtr hWnd)
+        {
+            try
+            {
+                NativeMethods.GetWindowThreadProcessId(hWnd, out uint processId);
+                if (processId > 0)
+                {
+                    using var process = System.Diagnostics.Process.GetProcessById((int)processId);
+                    // Note: Process.ProcessName doesn't include the .exe extension
+                    return process.ProcessName;
+                }
+            }
+            catch (Exception)
+            {
+                // Process might have exited or access denied
+            }
+            return string.Empty;
+        }
+
         private Screen GetMonitorFromWindow(IntPtr hwnd)
         {
             // Use a local variable for out parameter
@@ -573,6 +674,9 @@ namespace MonitorBounds.Services
 
         [DllImport("user32.dll")]
         public static extern int GetClassName(IntPtr hWnd, StringBuilder lpClassName, int nMaxCount);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
 
         [DllImport("user32.dll", SetLastError = true)]
         public static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);

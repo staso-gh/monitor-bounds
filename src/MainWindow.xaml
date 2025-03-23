@@ -61,7 +61,10 @@
         <Geometry x:Key="MinimizeIconGeometry">M0,0 L10,0</Geometry>
         <Geometry x:Key="MaximizeIconGeometry">M0,0 L10,0 L10,10 L0,10 Z</Geometry>
         <Geometry x:Key="CloseIconGeometry">M0,0 L10,10 M0,10 L10,0</Geometry>
+        <Geometry x:Key="SunIconGeometry">M12,7 C9.24,7 7,9.24 7,12 C7,14.76 9.24,17 12,17 C14.76,17 17,14.76 17,12 C17,9.24 14.76,7 12,7 M12,5 C15.86,5 19,8.14 19,12 C19,15.86 15.86,19 12,19 C8.14,19 5,15.86 5,12 C5,8.14 8.14,5 12,5 M12,2 L12,4 M12,20 L12,22 M2,12 L4,12 M20,12 L22,12 M5.6,5.6 L7.05,7.05 M16.95,16.95 L18.4,18.4 M18.4,5.6 L16.95,7.05 M7.05,16.95 L5.6,18.4</Geometry>
+        <Geometry x:Key="MoonIconGeometry">M12,2 C17.5,2 22,6.5 22,12 C22,17.5 17.5,22 12,22 C6.5,22 2,17.5 2,12 C2,6.5 6.5,2 12,2 M12,4 C7.58,4 4,7.58 4,12 C4,16.42 7.58,20 12,20 C16.42,20 20,16.42 20,12 C20,7.58 16.42,4 12,4 M12,6 C15.31,6 18,8.69 18,12 C18,15.31 15.31,18 12,18 C8.69,18 6,15.31 6,12 C6,8.69 8.69,6 12,6 M9,9 C7.9,10.1 7.9,11.9 9,13 C10.1,14.1 11.9,14.1 13,13 C14.1,11.9 14.1,10.1 13,9 C11.9,7.9 10.1,7.9 9,9</Geometry>
         <Geometry x:Key="ThemeIconGeometry">M12,2 A10,10 0 0,1 22,12 A10,10 0 0,1 12,22 A10,10 0 0,1 2,12 A10,10 0 0,1 12,2M12,4 A8,8 0 0,0 4,12 A8,8 0 0,0 12,20 A8,8 0 0,0 20,12 A8,8 0 0,0 12,4M12,6 A6,6 0 0,1 18,12 A6,6 0 0,1 12,18 A6,6 0 0,1 6,12 A6,6 0 0,1 12,6M12,8 A4,4 0 0,0 8,12 A4,4 0 0,0 12,16 A4,4 0 0,0 16,12 A4,4 0 0,0 12,8Z</Geometry>
+        <Geometry x:Key="StartupIconGeometry">M10,2 L10,7 L15,7 M14,2 L20,8 L14,14 M10,9 L4,15 L10,21 M4,9 L10,15 L16,9</Geometry>
         
         <!-- Base Button Style (all styles inherit from this) -->
         <Style x:Key="BaseButtonStyle" TargetType="ButtonBase">
@@ -120,6 +123,11 @@
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
                                 <Setter Property="Opacity" Value="0.85"/>
+                                <Setter TargetName="ButtonBorder" Property="Effect">
+                                    <Setter.Value>
+                                        <DropShadowEffect BlurRadius="8" ShadowDepth="1" Direction="315" Opacity="0.3" Color="#000000"/>
+                                    </Setter.Value>
+                                </Setter>
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
                                 <Setter Property="Opacity" Value="0.7"/>
@@ -194,6 +202,11 @@
                             </Trigger>
                             <Trigger Property="IsMouseOver" Value="True">
                                 <Setter Property="Opacity" Value="0.85"/>
+                                <Setter TargetName="border" Property="Effect">
+                                    <Setter.Value>
+                                        <DropShadowEffect BlurRadius="8" ShadowDepth="1" Direction="315" Opacity="0.3" Color="#000000"/>
+                                    </Setter.Value>
+                                </Setter>
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
                                 <Setter Property="Opacity" Value="0.7"/>
@@ -248,6 +261,53 @@
             <Setter Property="VerticalAlignment" Value="Center"/>
             <Setter Property="IsTabStop" Value="False"/>
             <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+        </Style>
+        
+        <!-- Startup Button Style -->
+        <Style x:Key="StartupButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="{StaticResource MediumGrayBrush}"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="Width" Value="40"/>
+            <Setter Property="Height" Value="40"/>
+            <Setter Property="Padding" Value="8"/>
+            <Setter Property="Margin" Value="6"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="ButtonBorder" 
+                                Background="{TemplateBinding Background}" 
+                                CornerRadius="4"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" 
+                                              VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Opacity" Value="0.85"/>
+                                <Setter TargetName="ButtonBorder" Property="Effect">
+                                    <Setter.Value>
+                                        <DropShadowEffect BlurRadius="8" ShadowDepth="1" Direction="315" Opacity="0.5" Color="#000000"/>
+                                    </Setter.Value>
+                                </Setter>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter Property="Opacity" Value="0.7"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding RunAtWindowsStartup}" Value="True">
+                    <Setter Property="Background" Value="{StaticResource AccentGreenBrush}"/>
+                    <Setter Property="ToolTip" Value="Disable Run at Windows Startup"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding RunAtWindowsStartup}" Value="False">
+                    <Setter Property="Background" Value="{StaticResource AccentRedBrush}"/>
+                    <Setter Property="ToolTip" Value="Enable Run at Windows Startup"/>
+                </DataTrigger>
+            </Style.Triggers>
         </Style>
     </Window.Resources>
     
@@ -372,7 +432,7 @@
                                     </Style>
                                 </DataGrid.Resources>
                                 <DataGrid.Columns>
-                                    <DataGridTextColumn Header="Pattern" Binding="{Binding TitlePattern}" Width="*">
+                                    <DataGridTextColumn Header="Rule Name" Binding="{Binding RuleName}" Width="*">
                                         <DataGridTextColumn.HeaderStyle>
                                             <Style TargetType="DataGridColumnHeader" BasedOn="{StaticResource DataGridColumnHeaderStyle}">
                                                 <Setter Property="HorizontalContentAlignment" Value="Left"/>
@@ -433,7 +493,7 @@
                             <Button x:Name="AddButton" Command="{Binding AddApplicationCommand}" 
                                     Style="{StaticResource ModernButtonStyle}"
                                     Background="{StaticResource MediumGrayBrush}"
-                                    ToolTip="Add Application">
+                                    ToolTip="Add Rule">
                                 <Path Data="{StaticResource AddIconGeometry}" 
                                       Stroke="White" 
                                       StrokeThickness="2"
@@ -442,7 +502,7 @@
                             <Button x:Name="EditButton" Command="{Binding EditApplicationCommand}" 
                                     IsEnabled="{Binding SelectedApplication, Converter={StaticResource BoolToVisibilityConverter}, ConverterParameter=bool}"
                                     Style="{StaticResource EditButtonStyle}"
-                                    ToolTip="Edit Application">
+                                    ToolTip="Edit Rule">
                                 <Path Data="{StaticResource EditIconGeometry}" 
                                       Fill="{StaticResource PrimaryLightForegroundBrush}" 
                                       Style="{StaticResource ButtonIconStyle}"/>
@@ -450,7 +510,7 @@
                             <Button x:Name="RemoveButton" Command="{Binding RemoveApplicationCommand}" 
                                     IsEnabled="{Binding SelectedApplication, Converter={StaticResource BoolToVisibilityConverter}, ConverterParameter=bool}"
                                     Style="{StaticResource RemoveButtonStyle}"
-                                    ToolTip="Remove Application">
+                                    ToolTip="Remove Rule">
                                 <Path Data="{StaticResource RemoveIconGeometry}" 
                                       Stroke="White" 
                                       StrokeThickness="2"
@@ -460,16 +520,35 @@
                         
                         <!-- Start/Stop Monitoring Toggle Button -->
                         <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right">
+                            <!-- Run at Windows startup button -->
+                            <Button x:Name="StartupButton" 
+                                   Width="40" Height="40"
+                                   BorderThickness="0"
+                                   Padding="8"
+                                   Foreground="White"
+                                   Style="{StaticResource StartupButtonStyle}"
+                                   Click="StartupButton_Click"
+                                   Margin="0,6,6,6">
+                                <Path x:Name="StartupIconPath" 
+                                      Data="{StaticResource StartupIconGeometry}" 
+                                      Fill="White"
+                                      Width="16" Height="16"
+                                      Stretch="Uniform"
+                                      StrokeThickness="1"
+                                      VerticalAlignment="Center"
+                                      HorizontalAlignment="Center"/>
+                            </Button>
+                            
                             <!-- Theme Toggle Button -->
                             <Button x:Name="ThemeToggleButton" 
                                    Style="{StaticResource ModernButtonStyle}"
-                                   Background="{StaticResource AccentPurpleBrush}"
+                                   Background="Transparent"
                                    Foreground="White"
                                    ToolTip="Toggle Theme (Light/Dark)"
                                    Click="ThemeToggleButton_Click"
                                    Margin="6,6,2,6">
                                 <Path x:Name="ThemeIconPath" 
-                                      Data="{StaticResource ThemeIconGeometry}" 
+                                      Data="{StaticResource MoonIconGeometry}"
                                       Fill="White" 
                                       Style="{StaticResource ButtonIconStyle}"/>
                             </Button>

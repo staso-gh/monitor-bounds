@@ -24,7 +24,10 @@ namespace MonitorBounds.Views
                 
                 return new ApplicationWindow
                 {
+                    RuleName = _application.RuleName,
                     TitlePattern = _application.TitlePattern,
+                    ProcessNamePattern = _application.ProcessNamePattern,
+                    UseProcessNameMatching = _application.UseProcessNameMatching,
                     IsActive = _application.IsActive,
                     RestrictToMonitor = _application.RestrictToMonitor,
                     Handle = _application.Handle
@@ -41,7 +44,10 @@ namespace MonitorBounds.Views
             // Create a copy to avoid modifying the original directly
             _application = new ApplicationWindow
             {
+                RuleName = application.RuleName,
                 TitlePattern = application.TitlePattern,
+                ProcessNamePattern = application.ProcessNamePattern,
+                UseProcessNameMatching = application.UseProcessNameMatching,
                 IsActive = application.IsActive,
                 RestrictToMonitor = application.RestrictToMonitor,
                 Handle = application.Handle
@@ -59,7 +65,10 @@ namespace MonitorBounds.Views
             
             _application = new ApplicationWindow
             {
+                RuleName = "New Rule",
                 TitlePattern = "*",
+                ProcessNamePattern = "*",
+                UseProcessNameMatching = false,
                 IsActive = true,
                 RestrictToMonitor = null
             };
@@ -75,21 +84,59 @@ namespace MonitorBounds.Views
             // Clear existing items
             MonitorComboBox.Items.Clear();
             
-            // Get display devices using Windows API
-            WindowsAPI.DISPLAY_DEVICE displayDevice = new WindowsAPI.DISPLAY_DEVICE();
-            displayDevice.cb = Marshal.SizeOf(typeof(WindowsAPI.DISPLAY_DEVICE));
+            // Get the actual monitor screens
+            var screens = System.Windows.Forms.Screen.AllScreens;
             
-            int monitorCount = 0;
-            for (uint i = 0; i < 10; i++) // Check up to 10 monitors
+            for (uint i = 0; i < screens.Length; i++)
             {
+                // Get primary device for this screen
+                WindowsAPI.DISPLAY_DEVICE displayDevice = new WindowsAPI.DISPLAY_DEVICE();
+                displayDevice.cb = Marshal.SizeOf(typeof(WindowsAPI.DISPLAY_DEVICE));
+                
                 if (WindowsAPI.EnumDisplayDevices(null, i, ref displayDevice, 0))
                 {
-                    monitorCount++;
-                    string displayName = string.IsNullOrEmpty(displayDevice.DeviceString) 
-                        ? $"Monitor {i}" 
-                        : $"Monitor {i}";
+                    // Now try to get the actual monitor information for this adapter
+                    WindowsAPI.DISPLAY_DEVICE monitorDevice = new WindowsAPI.DISPLAY_DEVICE();
+                    monitorDevice.cb = Marshal.SizeOf(typeof(WindowsAPI.DISPLAY_DEVICE));
                     
+                    string monitorName = string.Empty;
+                    bool foundMonitor = false;
+                    
+                    // Loop through monitor devices connected to this adapter
+                    for (uint j = 0; j < 10; j++) // Try up to 10 monitors per adapter
+                    {
+                        if (WindowsAPI.EnumDisplayDevices(displayDevice.DeviceName, j, ref monitorDevice, 0))
+                        {
+                            if (!string.IsNullOrEmpty(monitorDevice.DeviceString))
+                            {
+                                monitorName = monitorDevice.DeviceString;
+                                foundMonitor = true;
+                                break;
+                            }
+                        }
+                    }
+                    
+                    string displayName;
+                    if (foundMonitor)
+                    {
+                        displayName = $"Monitor {i} ({monitorName})";
+                    }
+                    else if (!string.IsNullOrEmpty(displayDevice.DeviceString))
+                    {
+                        // Fall back to adapter name if monitor name not found
+                        displayName = $"Monitor {i} ({displayDevice.DeviceString})";
+                    }
+                    else
+                    {
+                        displayName = $"Monitor {i}";
+                    }
+
                     MonitorComboBox.Items.Add(displayName);
+                }
+                else
+                {
+                    // If all else fails, just add a generic monitor name
+                    MonitorComboBox.Items.Add($"Monitor {i}");
                 }
             }
             
@@ -102,9 +149,7 @@ namespace MonitorBounds.Views
             }
             else if (MonitorComboBox.Items.Count > 0)
             {
-                // Default to first monitor
                 MonitorComboBox.SelectedIndex = 0;
-                _application.RestrictToMonitor = 0;
             }
             
             // Monitor combo box selection changed handler
@@ -128,6 +173,31 @@ namespace MonitorBounds.Views
                 System.Windows.MessageBox.Show("Please enter a title pattern for the application.", "Validation Error", 
                     MessageBoxButton.OK, MessageBoxImage.Error);
                 return;
+            }
+            
+            // Set a default rule name if none provided
+            if (string.IsNullOrWhiteSpace(_application.RuleName))
+            {
+                if (_application.UseProcessNameMatching && !string.IsNullOrWhiteSpace(_application.ProcessNamePattern))
+                {
+                    _application.RuleName = _application.ProcessNamePattern.Replace("*", "");
+                }
+                else
+                {
+                    _application.RuleName = _application.TitlePattern.Replace("*", "");
+                }
+                
+                // Trim the rule name if it's too long
+                if (_application.RuleName.Length > 30)
+                {
+                    _application.RuleName = _application.RuleName.Substring(0, 30) + "...";
+                }
+                
+                // If still empty after replacements, use a default name
+                if (string.IsNullOrWhiteSpace(_application.RuleName))
+                {
+                    _application.RuleName = "Application Rule";
+                }
             }
 
             // Update monitor restriction based on combo box
@@ -199,13 +269,31 @@ namespace MonitorBounds.Views
                         if (hWnd != IntPtr.Zero && hWnd != _pickerForm.Handle)
                         {
                             string title = GetWindowTitle(hWnd);
-                            if (!string.IsNullOrEmpty(title))
+                            string processName = GetProcessName(hWnd);
+                            if (!string.IsNullOrEmpty(title) || !string.IsNullOrEmpty(processName))
                             {
                                 // Update the application properties on the UI thread
                                 this.Dispatcher.Invoke(() =>
                                 {
                                     _application.Handle = hWnd;
                                     _application.TitlePattern = $"*{title}*";
+                                    _application.ProcessNamePattern = $"*{processName}*";
+                                    
+                                    // Set a rule name based on window title or process name
+                                    if (!string.IsNullOrEmpty(title))
+                                    {
+                                        _application.RuleName = title;
+                                    }
+                                    else if (!string.IsNullOrEmpty(processName))
+                                    {
+                                        _application.RuleName = processName;
+                                    }
+                                    
+                                    // Trim if necessary
+                                    if (_application.RuleName.Length > 30)
+                                    {
+                                        _application.RuleName = _application.RuleName.Substring(0, 30) + "...";
+                                    }
 
                                     // Force data binding update
                                     DataContext = null;
@@ -244,6 +332,9 @@ namespace MonitorBounds.Views
         [DllImport("user32.dll")]
         private static extern int GetWindowText(IntPtr hWnd, System.Text.StringBuilder lpString, int nMaxCount);
 
+        [DllImport("user32.dll")]
+        private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+
         private string GetWindowTitle(IntPtr hWnd)
         {
             int length = GetWindowTextLength(hWnd);
@@ -255,6 +346,25 @@ namespace MonitorBounds.Views
             var builder = new System.Text.StringBuilder(length + 1);
             GetWindowText(hWnd, builder, builder.Capacity);
             return builder.ToString();
+        }
+
+        private string GetProcessName(IntPtr hWnd)
+        {
+            try
+            {
+                GetWindowThreadProcessId(hWnd, out uint processId);
+                if (processId > 0)
+                {
+                    // Note: Process.ProcessName returns the name without the .exe extension
+                    using var process = System.Diagnostics.Process.GetProcessById((int)processId);
+                    return process.ProcessName;
+                }
+            }
+            catch (Exception)
+            {
+                // Process might have exited or access denied
+            }
+            return string.Empty;
         }
 
         // Apply the current application theme when the window loads
@@ -280,15 +390,22 @@ namespace MonitorBounds.Views
                 MainBorder.Background = (SolidColorBrush)Resources["BackgroundBrushDark"];
                 
                 // Update text colors for all labels
+                RuleNameLabel.Foreground = (SolidColorBrush)Resources["ForegroundBrushDark"];
                 TitleLabel.Foreground = (SolidColorBrush)Resources["ForegroundBrushDark"];
+                ProcessNameLabel.Foreground = (SolidColorBrush)Resources["ForegroundBrushDark"];
+                UseProcessNameLabel.Foreground = (SolidColorBrush)Resources["ForegroundBrushDark"];
                 EnableLabel.Foreground = (SolidColorBrush)Resources["ForegroundBrushDark"];
                 MonitorLabel.Foreground = (SolidColorBrush)Resources["ForegroundBrushDark"];
                 HelpLabel.Foreground = (SolidColorBrush)Resources["ForegroundBrushDark"];
                 HelpText.Foreground = (SolidColorBrush)Resources["ForegroundBrushDark"];
                 
                 // Update control backgrounds as needed
+                RuleNameTextBox.Background = new SolidColorBrush(System.Windows.Media.Color.FromRgb(45, 45, 48));
+                RuleNameTextBox.Foreground = System.Windows.Media.Brushes.White;
                 TitleTextBox.Background = new SolidColorBrush(System.Windows.Media.Color.FromRgb(45, 45, 48));
                 TitleTextBox.Foreground = System.Windows.Media.Brushes.White;
+                ProcessNameTextBox.Background = new SolidColorBrush(System.Windows.Media.Color.FromRgb(45, 45, 48));
+                ProcessNameTextBox.Foreground = System.Windows.Media.Brushes.White;
                 
                 // Update button styles
                 UpdateButtonsForDarkTheme();
@@ -299,15 +416,22 @@ namespace MonitorBounds.Views
                 MainBorder.Background = (SolidColorBrush)Resources["BackgroundBrushLight"];
                 
                 // Update text colors for all labels
+                RuleNameLabel.Foreground = (SolidColorBrush)Resources["ForegroundBrushLight"];
                 TitleLabel.Foreground = (SolidColorBrush)Resources["ForegroundBrushLight"];
+                ProcessNameLabel.Foreground = (SolidColorBrush)Resources["ForegroundBrushLight"];
+                UseProcessNameLabel.Foreground = (SolidColorBrush)Resources["ForegroundBrushLight"];
                 EnableLabel.Foreground = (SolidColorBrush)Resources["ForegroundBrushLight"];
                 MonitorLabel.Foreground = (SolidColorBrush)Resources["ForegroundBrushLight"];
                 HelpLabel.Foreground = (SolidColorBrush)Resources["ForegroundBrushLight"];
                 HelpText.Foreground = (SolidColorBrush)Resources["ForegroundBrushLight"];
                 
                 // Update control backgrounds as needed
+                RuleNameTextBox.Background = System.Windows.Media.Brushes.White;
+                RuleNameTextBox.Foreground = System.Windows.Media.Brushes.Black;
                 TitleTextBox.Background = System.Windows.Media.Brushes.White;
                 TitleTextBox.Foreground = System.Windows.Media.Brushes.Black;
+                ProcessNameTextBox.Background = System.Windows.Media.Brushes.White;
+                ProcessNameTextBox.Foreground = System.Windows.Media.Brushes.Black;
                 
                 // Update button styles
                 UpdateButtonsForLightTheme();

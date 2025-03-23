@@ -18,7 +18,9 @@ namespace MonitorBounds.ViewModels
     {
         private readonly WindowMonitorService _windowMonitorService;
         private readonly ConfigurationService _configurationService;
+        private readonly StartupManager _startupManager;
         private bool _isMonitoring;
+        private bool _runAtWindowsStartup;
         private ApplicationWindow? _selectedApplication;
 
         public event PropertyChangedEventHandler? PropertyChanged;
@@ -36,6 +38,7 @@ namespace MonitorBounds.ViewModels
         public ICommand EditApplicationCommand { get; }
         public ICommand RemoveApplicationCommand { get; }
         public ICommand ToggleActiveStateCommand { get; }
+        public ICommand ToggleStartupCommand { get; }
 
         // Gets or sets whether monitoring is active
         public bool IsMonitoring
@@ -46,6 +49,35 @@ namespace MonitorBounds.ViewModels
                 if (_isMonitoring != value)
                 {
                     _isMonitoring = value;
+                    OnPropertyChanged();
+                }
+            }
+        }
+        
+        // Gets or sets whether the application should run when Windows starts
+        public bool RunAtWindowsStartup
+        {
+            get => _runAtWindowsStartup;
+            set
+            {
+                if (_runAtWindowsStartup != value)
+                {
+                    _runAtWindowsStartup = value;
+                    
+                    // Update the startup registry based on the value
+                    if (_runAtWindowsStartup)
+                    {
+                        _startupManager.EnableStartup();
+                    }
+                    else
+                    {
+                        _startupManager.DisableStartup();
+                    }
+                    
+                    // Save the setting to configuration
+                    _configurationService.RunAtWindowsStartup = value;
+                    Task.Run(async () => await SaveConfigurationAsync()).ConfigureAwait(false);
+                    
                     OnPropertyChanged();
                 }
             }
@@ -69,10 +101,11 @@ namespace MonitorBounds.ViewModels
         }
 
         // Constructor initializes services and commands
-        public MainViewModel(WindowMonitorService windowMonitorService, ConfigurationService configurationService)
+        public MainViewModel(WindowMonitorService windowMonitorService, ConfigurationService configurationService, StartupManager startupManager)
         {
             _windowMonitorService = windowMonitorService ?? throw new ArgumentNullException(nameof(windowMonitorService));
             _configurationService = configurationService ?? throw new ArgumentNullException(nameof(configurationService));
+            _startupManager = startupManager ?? throw new ArgumentNullException(nameof(startupManager));
 
             // Set up commands
             StartMonitoringCommand = new RelayCommand(StartMonitoring, CanStartMonitoring);
@@ -81,6 +114,7 @@ namespace MonitorBounds.ViewModels
             EditApplicationCommand = new AsyncRelayCommand(EditApplicationAsync, CanEditApplication);
             RemoveApplicationCommand = new AsyncRelayCommand(RemoveApplicationAsync, CanRemoveApplication);
             ToggleActiveStateCommand = new RelayCommand<ApplicationWindow>(ToggleActiveState);
+            ToggleStartupCommand = new RelayCommand(ToggleStartup);
 
             // Subscribe to window monitoring events
             _windowMonitorService.WindowMoved += OnWindowMoved;
@@ -108,7 +142,10 @@ namespace MonitorBounds.ViewModels
                 // Create a fresh copy to avoid reference issues
                 var appCopy = new ApplicationWindow
                 {
+                    RuleName = app.RuleName,
                     TitlePattern = app.TitlePattern,
+                    ProcessNamePattern = app.ProcessNamePattern,
+                    UseProcessNameMatching = app.UseProcessNameMatching,
                     IsActive = app.IsActive,
                     RestrictToMonitor = app.RestrictToMonitor
                 };
@@ -121,6 +158,22 @@ namespace MonitorBounds.ViewModels
                     _windowMonitorService.AddTargetApplication(appCopy);
                 }
                 
+            }
+            
+            // Set the startup setting from configuration
+            _runAtWindowsStartup = _configurationService.RunAtWindowsStartup;
+            
+            // Ensure the actual startup registry entry matches the configuration
+            if (_runAtWindowsStartup != _startupManager.IsStartupEnabled())
+            {
+                if (_runAtWindowsStartup)
+                {
+                    _startupManager.EnableStartup();
+                }
+                else
+                {
+                    _startupManager.DisableStartup();
+                }
             }
             
             // Start monitoring if configured to do so
@@ -247,7 +300,10 @@ namespace MonitorBounds.ViewModels
                     // Create fresh copy to avoid reference issues
                     var freshApp = new ApplicationWindow
                     {
+                        RuleName = editor.Application.RuleName,
                         TitlePattern = editor.Application.TitlePattern,
+                        ProcessNamePattern = editor.Application.ProcessNamePattern,
+                        UseProcessNameMatching = editor.Application.UseProcessNameMatching,
                         IsActive = editor.Application.IsActive,
                         RestrictToMonitor = editor.Application.RestrictToMonitor,
                         Handle = editor.Application.Handle
@@ -312,7 +368,10 @@ namespace MonitorBounds.ViewModels
                 // Create a deep copy for editing to avoid reference issues
                 var applicationCopy = new ApplicationWindow
                 {
+                    RuleName = appToEdit.RuleName,
                     TitlePattern = appToEdit.TitlePattern,
+                    ProcessNamePattern = appToEdit.ProcessNamePattern,
+                    UseProcessNameMatching = appToEdit.UseProcessNameMatching,
                     IsActive = appToEdit.IsActive,
                     RestrictToMonitor = appToEdit.RestrictToMonitor,
                     Handle = appToEdit.Handle
@@ -362,7 +421,10 @@ namespace MonitorBounds.ViewModels
                     // Create new instance with updated values
                     var updatedApp = new ApplicationWindow
                     {
+                        RuleName = dialog.Application.RuleName,
                         TitlePattern = dialog.Application.TitlePattern,
+                        ProcessNamePattern = dialog.Application.ProcessNamePattern,
+                        UseProcessNameMatching = dialog.Application.UseProcessNameMatching,
                         IsActive = dialog.Application.IsActive,
                         RestrictToMonitor = dialog.Application.RestrictToMonitor,
                         Handle = dialog.Application.Handle
@@ -444,7 +506,7 @@ namespace MonitorBounds.ViewModels
             {
                 // Confirm deletion
                 var result = System.Windows.MessageBox.Show(
-                    $"Are you sure you want to remove '{SelectedApplication.TitlePattern}'?", 
+                    $"Are you sure you want to remove '{SelectedApplication.RuleName}'?", 
                     "Confirm Removal", 
                     System.Windows.MessageBoxButton.YesNo, 
                     System.Windows.MessageBoxImage.Question);
@@ -465,7 +527,7 @@ namespace MonitorBounds.ViewModels
             catch (Exception ex)
             {
                 System.Windows.MessageBox.Show(
-                    $"Failed to remove application: {ex.Message}",
+                    $"Failed to remove rule: {ex.Message}",
                     "Error",
                     System.Windows.MessageBoxButton.OK,
                     System.Windows.MessageBoxImage.Error);
@@ -517,6 +579,12 @@ namespace MonitorBounds.ViewModels
             }
         }
 
+        // Toggle the startup state of the application
+        private void ToggleStartup()
+        {
+            RunAtWindowsStartup = !RunAtWindowsStartup;
+        }
+
         // Saves the current configuration to the service
         public async Task SaveConfigurationAsync()
         {
@@ -530,7 +598,8 @@ namespace MonitorBounds.ViewModels
                 // Use the direct save method to ensure all applications are saved correctly
                 await _configurationService.SaveConfigurationDirectAsync(
                     TargetApplications, 
-                    _isMonitoring // Save current monitoring state as StartMonitoringOnStartup
+                    _isMonitoring, // Save current monitoring state as StartMonitoringOnStartup
+                    _runAtWindowsStartup // Save current startup setting
                 );
                 
                 

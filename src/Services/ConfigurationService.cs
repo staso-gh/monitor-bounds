@@ -18,6 +18,9 @@ namespace MonitorBounds.Services
 
         // Determines if the application should start monitoring on startup.
         public bool StartMonitoringOnStartup { get; set; } = true;
+        
+        // Determines if the application should run when Windows starts.
+        public bool RunAtWindowsStartup { get; set; } = false;
 
         // Event raised when configuration changes.
         public event EventHandler ConfigurationChanged;
@@ -84,7 +87,10 @@ namespace MonitorBounds.Services
                                     {
                                         var freshCopy = new ApplicationWindow
                                         {
+                                            RuleName = app.RuleName ?? app.TitlePattern?.Replace("*", "") ?? "Application Rule",
                                             TitlePattern = app.TitlePattern,
+                                            ProcessNamePattern = app.ProcessNamePattern ?? "*",
+                                            UseProcessNameMatching = app.UseProcessNameMatching,
                                             IsActive = app.IsActive,
                                             RestrictToMonitor = app.RestrictToMonitor
                                         };
@@ -98,6 +104,7 @@ namespace MonitorBounds.Services
                             }
 
                             StartMonitoringOnStartup = config.StartMonitoringOnStartup;
+                            RunAtWindowsStartup = config.RunAtWindowsStartup;
                         }
                         else
                         {
@@ -127,6 +134,7 @@ namespace MonitorBounds.Services
             {
                 TargetApplications = new List<ApplicationWindow>();
                 StartMonitoringOnStartup = true;
+                RunAtWindowsStartup = false;
                 await SaveConfigurationAsync().ConfigureAwait(false);
             }
         }
@@ -139,7 +147,10 @@ namespace MonitorBounds.Services
                 // Create clean copies of applications (excluding unserializable data).
                 var cleanApplications = TargetApplications.Select(app => new ApplicationWindow
                 {
+                    RuleName = app.RuleName,
                     TitlePattern = app.TitlePattern,
+                    ProcessNamePattern = app.ProcessNamePattern,
+                    UseProcessNameMatching = app.UseProcessNameMatching,
                     IsActive = app.IsActive,
                     RestrictToMonitor = app.RestrictToMonitor
                 }).ToList();
@@ -147,7 +158,8 @@ namespace MonitorBounds.Services
                 var config = new ConfigurationData
                 {
                     TargetApplications = cleanApplications,
-                    StartMonitoringOnStartup = StartMonitoringOnStartup
+                    StartMonitoringOnStartup = StartMonitoringOnStartup,
+                    RunAtWindowsStartup = RunAtWindowsStartup
                 };
 
                 var options = new JsonSerializerOptions
@@ -212,13 +224,17 @@ namespace MonitorBounds.Services
         }
 
         // Directly saves configuration with the provided applications.
-        public async Task SaveConfigurationDirectAsync(IEnumerable<ApplicationWindow> applications, bool startMonitoringOnStartup)
+        public async Task SaveConfigurationDirectAsync(IEnumerable<ApplicationWindow> applications, bool startMonitoringOnStartup, bool runAtWindowsStartup)
         {
             try
             {
+                // Create clean copies of applications (excluding unserializable data).
                 var cleanApplications = applications.Select(app => new ApplicationWindow
                 {
+                    RuleName = app.RuleName,
                     TitlePattern = app.TitlePattern,
+                    ProcessNamePattern = app.ProcessNamePattern,
+                    UseProcessNameMatching = app.UseProcessNameMatching,
                     IsActive = app.IsActive,
                     RestrictToMonitor = app.RestrictToMonitor
                 }).ToList();
@@ -226,7 +242,8 @@ namespace MonitorBounds.Services
                 var config = new ConfigurationData
                 {
                     TargetApplications = cleanApplications,
-                    StartMonitoringOnStartup = startMonitoringOnStartup
+                    StartMonitoringOnStartup = startMonitoringOnStartup,
+                    RunAtWindowsStartup = runAtWindowsStartup
                 };
 
                 var options = new JsonSerializerOptions
@@ -282,6 +299,7 @@ namespace MonitorBounds.Services
                 }
 
                 StartMonitoringOnStartup = startMonitoringOnStartup;
+                RunAtWindowsStartup = runAtWindowsStartup;
                 ConfigurationChanged?.Invoke(this, EventArgs.Empty);
             }
             catch (Exception)
@@ -296,5 +314,6 @@ namespace MonitorBounds.Services
     {
         public List<ApplicationWindow> TargetApplications { get; set; } = new();
         public bool StartMonitoringOnStartup { get; set; } = true;
+        public bool RunAtWindowsStartup { get; set; } = false;
     }
 }

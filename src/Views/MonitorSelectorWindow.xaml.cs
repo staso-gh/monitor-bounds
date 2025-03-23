@@ -1,6 +1,7 @@
 using System;
 using System.Windows;
 using System.Runtime.InteropServices;
+using System.Windows.Forms;
 
 namespace MonitorBounds.Views
 {
@@ -22,41 +23,75 @@ namespace MonitorBounds.Views
 
         // Creates a new instance of the MonitorSelectorWindow
 
-        public MonitorSelectorWindow(int monitorCount)
+        public MonitorSelectorWindow()
         {
             InitializeComponent();
 
             // Initialize the monitor combo box
-            PopulateMonitorComboBox(monitorCount);
+            PopulateMonitorComboBox();
         }
 
 
         // Populates the monitor combo box with available monitors
 
-        private void PopulateMonitorComboBox(int monitorCount)
+        private void PopulateMonitorComboBox()
         {
             MonitorComboBox.Items.Clear();
 
-            // Get display devices using Windows API
-            WindowsAPI.DISPLAY_DEVICE displayDevice = new WindowsAPI.DISPLAY_DEVICE();
-            displayDevice.cb = Marshal.SizeOf(typeof(WindowsAPI.DISPLAY_DEVICE));
+            // Get the actual monitor screens
+            var screens = Screen.AllScreens;
 
-            for (uint i = 0; i < monitorCount; i++)
+            for (uint i = 0; i < screens.Length; i++)
             {
-                string displayName;
+                // Get primary device for this screen
+                WindowsAPI.DISPLAY_DEVICE displayDevice = new WindowsAPI.DISPLAY_DEVICE();
+                displayDevice.cb = Marshal.SizeOf(typeof(WindowsAPI.DISPLAY_DEVICE));
                 
                 if (WindowsAPI.EnumDisplayDevices(null, i, ref displayDevice, 0))
                 {
-                    displayName = string.IsNullOrEmpty(displayDevice.DeviceString)
-                        ? $"Monitor {i}"
-                        : $"Monitor {i} ({displayDevice.DeviceString})";
+                    // Now try to get the actual monitor information for this adapter
+                    WindowsAPI.DISPLAY_DEVICE monitorDevice = new WindowsAPI.DISPLAY_DEVICE();
+                    monitorDevice.cb = Marshal.SizeOf(typeof(WindowsAPI.DISPLAY_DEVICE));
+                    
+                    string monitorName = string.Empty;
+                    bool foundMonitor = false;
+                    
+                    // Loop through monitor devices connected to this adapter
+                    for (uint j = 0; j < 10; j++) // Try up to 10 monitors per adapter
+                    {
+                        if (WindowsAPI.EnumDisplayDevices(displayDevice.DeviceName, j, ref monitorDevice, 0))
+                        {
+                            if (!string.IsNullOrEmpty(monitorDevice.DeviceString))
+                            {
+                                monitorName = monitorDevice.DeviceString;
+                                foundMonitor = true;
+                                break;
+                            }
+                        }
+                    }
+                    
+                    string displayName;
+                    if (foundMonitor)
+                    {
+                        displayName = $"Monitor {i} ({monitorName})";
+                    }
+                    else if (!string.IsNullOrEmpty(displayDevice.DeviceString))
+                    {
+                        // Fall back to adapter name if monitor name not found
+                        displayName = $"Monitor {i} ({displayDevice.DeviceString})";
+                    }
+                    else
+                    {
+                        displayName = $"Monitor {i}";
+                    }
+
+                    MonitorComboBox.Items.Add(displayName);
                 }
                 else
                 {
-                    displayName = $"Monitor {i}";
+                    // If all else fails, just add a generic monitor name
+                    MonitorComboBox.Items.Add($"Monitor {i}");
                 }
-
-                MonitorComboBox.Items.Add(displayName);
             }
 
             // Select the first monitor by default
