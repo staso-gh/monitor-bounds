@@ -66,7 +66,8 @@ Screen Region Protector monitors active windows on your system and automatically
 - Built with .NET and WPF
 - Uses Windows API hooks to monitor and manage window positions
 - Efficiently handles multiple displays and scaling configurations
-- Minimal performance impact (~0.1% CPU usage in most scenarios)
+- Minimal performance impact (~0% CPU usage in most scenarios)
+- TODO: Minimal memory footprint (Currently hovers around 100MB after prolonged use, memory profiler reports appox. 60-80% is unused space, any help on this is appreciated)
 
 ## Requirements
 
