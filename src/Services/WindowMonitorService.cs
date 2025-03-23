@@ -21,7 +21,7 @@ namespace MonitorBounds.Services
         private readonly System.Timers.Timer _monitorTimer;
         private readonly Dictionary<IntPtr, NativeMethods.RECT> _lastWindowPositions = new();
         private bool _disposed = false;
-        private const int POLLING_INTERVAL_MS = 50;
+        private const int POLLING_INTERVAL_MS = 100;
 
         // Reusable objects to reduce allocations
         private readonly List<ApplicationWindow> _activeTargets = new();

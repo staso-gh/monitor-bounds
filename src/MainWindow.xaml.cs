@@ -63,10 +63,10 @@ namespace MonitorBounds
         public MainWindow()
         {
             // Register converters in resources
-            Resources.Add("BoolToStringConverter", new BoolToStringConverter());
-            Resources.Add("BoolToVisibilityConverter", new BoolToVisibilityConverter());
-            Resources.Add("BoolToColorConverter", new BoolToColorConverter());
-            Resources.Add("ToggleButtonCommandConverter", new ToggleButtonCommandConverter());
+            Resources.Add("BoolToStringConverter", BoolToStringConverter.Instance);
+            Resources.Add("BoolToVisibilityConverter", BoolToVisibilityConverter.Instance);
+            Resources.Add("BoolToColorConverter", BoolToColorConverter.Instance);
+            Resources.Add("ToggleButtonCommandConverter", ToggleButtonCommandConverter.Instance);
 
             InitializeComponent();
 
