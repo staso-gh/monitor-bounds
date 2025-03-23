@@ -22,6 +22,7 @@ Screen Region Protector is a lightweight Windows utility that lets you keep appl
 - **Light/Dark Mode**: Choose between light and dark themes
 - **Low Resource Usage**: Minimal CPU and memory footprint
 - **Auto-Start Option**: Launch with Windows
+- **Configuration File**: Automatically stores your configurations under `%LOCALAPPDATA%\MonitorBounds\settings.json`
 
 ## How It Works
 
