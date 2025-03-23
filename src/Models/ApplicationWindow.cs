@@ -3,11 +3,6 @@ using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Text.Json.Serialization;
 using System.IO.Enumeration;
-using System.Text.RegularExpressions;
-using System.Collections.Generic;
-using System.Drawing;
-using System.Text;
-using System.Windows.Media;
 
 namespace MonitorBounds.Models
 {
@@ -18,6 +13,13 @@ namespace MonitorBounds.Models
         private bool _isActive = true;
         private IntPtr _handle = IntPtr.Zero;
         private int? _restrictToMonitor = null;
+
+        // Cached PropertyChangedEventArgs instances to reduce memory allocations
+        private static readonly PropertyChangedEventArgs TitlePatternChangedEventArgs = new PropertyChangedEventArgs(nameof(TitlePattern));
+        private static readonly PropertyChangedEventArgs IsActiveChangedEventArgs = new PropertyChangedEventArgs(nameof(IsActive));
+        private static readonly PropertyChangedEventArgs HandleChangedEventArgs = new PropertyChangedEventArgs(nameof(Handle));
+        private static readonly PropertyChangedEventArgs RestrictToMonitorChangedEventArgs = new PropertyChangedEventArgs(nameof(RestrictToMonitor));
+        private static readonly PropertyChangedEventArgs IsSpecificWindowChangedEventArgs = new PropertyChangedEventArgs(nameof(IsSpecificWindow));
 
         public event PropertyChangedEventHandler PropertyChanged;
 
@@ -30,8 +32,8 @@ namespace MonitorBounds.Models
                 if (_titlePattern != value)
                 {
                     _titlePattern = value;
-                    OnPropertyChanged();
-                    OnPropertyChanged(nameof(IsSpecificWindow));
+                    OnPropertyChanged(TitlePatternChangedEventArgs);
+                    OnPropertyChanged(IsSpecificWindowChangedEventArgs);
                 }
             }
         }
@@ -45,7 +47,7 @@ namespace MonitorBounds.Models
                 if (_isActive != value)
                 {
                     _isActive = value;
-                    OnPropertyChanged();
+                    OnPropertyChanged(IsActiveChangedEventArgs);
                 }
             }
         }
@@ -60,7 +62,8 @@ namespace MonitorBounds.Models
                 if (_handle != value)
                 {
                     _handle = value;
-                    OnPropertyChanged();
+                    OnPropertyChanged(HandleChangedEventArgs);
+                    OnPropertyChanged(IsSpecificWindowChangedEventArgs);
                 }
             }
         }
@@ -74,7 +77,7 @@ namespace MonitorBounds.Models
                 if (_restrictToMonitor != value)
                 {
                     _restrictToMonitor = value;
-                    OnPropertyChanged();
+                    OnPropertyChanged(RestrictToMonitorChangedEventArgs);
                 }
             }
         }
@@ -94,14 +97,7 @@ namespace MonitorBounds.Models
                 return Handle == windowHandle;
 
             // Otherwise, match by title pattern (case-insensitive)
-            bool matches = MatchesPattern(windowTitle, TitlePattern);
-
-            // Log matches for debugging
-            if (matches)
-            {
-            }
-
-            return matches;
+            return MatchesPattern(windowTitle, TitlePattern);
         }
 
         // Checks if a window title matches the given pattern (supports * and ? wildcards)
@@ -110,18 +106,14 @@ namespace MonitorBounds.Models
             if (string.IsNullOrEmpty(pattern))
                 return false;
 
-            // Convert to lowercase for case-insensitive comparison
-            string lowerText = text.ToLowerInvariant();
-            string lowerPattern = pattern.ToLowerInvariant();
-
             // Use FileSystemName.MatchesSimpleExpression for wildcard matching
-            return FileSystemName.MatchesSimpleExpression(lowerPattern, lowerText);
+            return FileSystemName.MatchesSimpleExpression(pattern, text, ignoreCase: true);
         }
 
         // Notify that a property value has changed
-        protected void OnPropertyChanged([CallerMemberName] string propertyName = "")
+        protected void OnPropertyChanged(PropertyChangedEventArgs args)
         {
-            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+            PropertyChanged?.Invoke(this, args);
         }
 
         // Implement IEquatable<ApplicationWindow>
