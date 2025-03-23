@@ -54,13 +54,13 @@ namespace ScreenRegionProtector.Services
             }
         }
 
-        public void StartMonitoring() 
+        public void StartMonitoring()
         {
             if (_disposed) return;
             _monitorTimer.Start();
         }
 
-        public void StopMonitoring() 
+        public void StopMonitoring()
         {
             if (_disposed) return;
             _monitorTimer.Stop();
@@ -81,52 +81,79 @@ namespace ScreenRegionProtector.Services
 
             try
             {
-                // Create a copy of the current targets for thread safety
-                List<ApplicationWindow> activeTargets;
+                // Manually iterate through _targetApplications to avoid LINQ overhead
+                List<ApplicationWindow> activeTargets = new(_targetApplications.Count);
                 lock (_targetApplications)
                 {
-                    activeTargets = _targetApplications
-                        .Where(a => a.IsActive && a.RestrictToMonitor.HasValue)
-                        .ToList();
+                    for (int i = 0; i < _targetApplications.Count; i++)
+                    {
+                        var app = _targetApplications[i];
+                        if (app.IsActive && app.RestrictToMonitor.HasValue)
+                        {
+                            activeTargets.Add(app);
+                        }
+                    }
                 }
-
                 if (activeTargets.Count == 0)
                     return;
 
-                // Find all visible windows
-                List<IntPtr> windowHandles = new List<IntPtr>();
-                NativeMethods.EnumWindows((hWnd, lParam) => {
-                    if (NativeMethods.IsWindowVisible(hWnd))
+                // Preallocate a list for window handles
+                var windowHandles = new List<IntPtr>(64);
+
+                // Cache GetWindowTitle calls to avoid duplicate work
+                var windowTitleCache = new Dictionary<IntPtr, string>(64);
+
+                // Enumerate windows only once, caching titles along the way
+                NativeMethods.EnumWindows((hWnd, lParam) =>
+                {
+                    if (!NativeMethods.IsWindowVisible(hWnd))
+                        return true;
+
+                    if (!windowTitleCache.TryGetValue(hWnd, out string title))
                     {
-                        string title = GetWindowTitle(hWnd);
-                        if (!string.IsNullOrWhiteSpace(title) && !ShouldIgnoreSystemWindow(hWnd, title))
-                        {
-                            windowHandles.Add(hWnd);
-                        }
+                        title = GetWindowTitle(hWnd);
+                        windowTitleCache[hWnd] = title;
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(title) && !ShouldIgnoreSystemWindow(hWnd, title))
+                    {
+                        windowHandles.Add(hWnd);
                     }
                     return true;
                 }, IntPtr.Zero);
 
-                // Process each window
-                foreach (var hwnd in windowHandles)
+                // Process each window using the cached title value
+                for (int i = 0; i < windowHandles.Count; i++)
                 {
-                    string title = GetWindowTitle(hwnd);
+                    IntPtr hwnd = windowHandles[i];
+                    if (!windowTitleCache.TryGetValue(hwnd, out string title))
+                    {
+                        title = GetWindowTitle(hwnd);
+                    }
                     if (string.IsNullOrWhiteSpace(title) || !NativeMethods.IsWindow(hwnd))
                         continue;
-                    
-                    ApplicationWindow matchingApp = activeTargets.FirstOrDefault(a => a.Matches(hwnd, title));
+
+                    // Use a simple loop for matching instead of LINQ
+                    ApplicationWindow matchingApp = null;
+                    for (int j = 0; j < activeTargets.Count; j++)
+                    {
+                        if (activeTargets[j].Matches(hwnd, title))
+                        {
+                            matchingApp = activeTargets[j];
+                            break;
+                        }
+                    }
+
                     if (matchingApp != null)
                     {
                         ProcessTargetWindow(hwnd, title, matchingApp);
                     }
                     else
                     {
-                        // For non-target windows, just track movement
                         HandleWindowMovement(hwnd);
                     }
                 }
 
-                // Clean up invalid window handles
                 CleanupInvalidWindowHandles();
             }
             catch (Exception)
@@ -141,7 +168,7 @@ namespace ScreenRegionProtector.Services
                 return;
 
             int targetMonitorIndex = matchingApp.RestrictToMonitor.Value;
-            
+
             // Use Screen.AllScreens to get monitor information
             if (targetMonitorIndex < 0 || targetMonitorIndex >= Screen.AllScreens.Length)
                 return;
@@ -154,12 +181,8 @@ namespace ScreenRegionProtector.Services
 
             if (needsRepositioning)
             {
-                NativeMethods.RECT lastRect = new NativeMethods.RECT();
-                if (_lastWindowPositions.TryGetValue(hwnd, out var storedRect))
-                {
-                    lastRect = storedRect;
-                }
-
+                NativeMethods.RECT lastRect = new();
+                _lastWindowPositions.TryGetValue(hwnd, out lastRect);
                 ForceWindowToMonitor(hwnd, windowTitle, windowRect, lastRect, targetMonitorIndex, targetBounds);
             }
             else
@@ -173,14 +196,13 @@ namespace ScreenRegionProtector.Services
         {
             // Allow a small margin (10 pixels) to avoid constant repositioning for slight offsets
             int margin = 10;
-            return 
-                windowRect.Left >= monitorBounds.Left - margin && 
-                windowRect.Right <= monitorBounds.Right + margin &&
-                windowRect.Top >= monitorBounds.Top - margin && 
-                windowRect.Bottom <= monitorBounds.Bottom + margin;
+            return windowRect.Left >= monitorBounds.Left - margin &&
+                   windowRect.Right <= monitorBounds.Right + margin &&
+                   windowRect.Top >= monitorBounds.Top - margin &&
+                   windowRect.Bottom <= monitorBounds.Bottom + margin;
         }
 
-        private void ForceWindowToMonitor(IntPtr hwnd, string windowTitle, NativeMethods.RECT windowRect, 
+        private void ForceWindowToMonitor(IntPtr hwnd, string windowTitle, NativeMethods.RECT windowRect,
                                         NativeMethods.RECT lastRect, int targetMonitorIndex, System.Drawing.Rectangle targetBounds)
         {
             if (!NativeMethods.IsWindow(hwnd))
@@ -192,7 +214,7 @@ namespace ScreenRegionProtector.Services
 
             // Stop any active window drag
             NativeMethods.StopWindowDrag(hwnd);
-            
+
             if (lastRect.Left == 0 && lastRect.Top == 0 && lastRect.Right == 0 && lastRect.Bottom == 0)
             {
                 // First time seeing this window, center it on the target monitor
@@ -212,7 +234,7 @@ namespace ScreenRegionProtector.Services
                     // Calculate relative position within current monitor
                     relativeX = (float)(windowRect.Left - currentMonitor.Bounds.Left) / currentMonitor.Bounds.Width;
                     relativeY = (float)(windowRect.Top - currentMonitor.Bounds.Top) / currentMonitor.Bounds.Height;
-                    
+
                     // Clamp values to valid range
                     relativeX = Math.Max(0.0f, Math.Min(1.0f, relativeX));
                     relativeY = Math.Max(0.0f, Math.Min(1.0f, relativeY));
@@ -235,7 +257,7 @@ namespace ScreenRegionProtector.Services
                 if (attempt > 0)
                 {
                     NativeMethods.StopWindowDrag(hwnd);
-                    System.Threading.Thread.Sleep(50 * attempt);
+                    Thread.Sleep(50 * attempt);
                 }
 
                 success = NativeMethods.SetWindowPos(
@@ -256,14 +278,14 @@ namespace ScreenRegionProtector.Services
                 return;
 
             // Update last position and notify listeners
-            NativeMethods.RECT newRect = new NativeMethods.RECT
+            NativeMethods.RECT newRect = new()
             {
                 Left = newX,
                 Top = newY,
                 Right = newX + windowWidth,
                 Bottom = newY + windowHeight
             };
-            
+
             _lastWindowPositions[hwnd] = newRect;
 
             WindowRepositioned?.Invoke(this, new WindowRepositionedEventArgs
@@ -283,39 +305,30 @@ namespace ScreenRegionProtector.Services
             if (string.IsNullOrWhiteSpace(windowTitle) || ShouldIgnoreSystemWindow(hwnd, windowTitle))
                 return;
 
-            NativeMethods.RECT windowRect = new NativeMethods.RECT();
-            if (!NativeMethods.GetWindowRect(hwnd, out windowRect))
+            if (!NativeMethods.GetWindowRect(hwnd, out NativeMethods.RECT windowRect))
                 return;
 
-            bool hasMoved = false;
-            NativeMethods.RECT lastRect = new NativeMethods.RECT();
-
+            bool hasMoved = true;
             if (_lastWindowPositions.TryGetValue(hwnd, out var storedRect))
             {
-                lastRect = storedRect;
-                hasMoved = lastRect.Left != windowRect.Left || 
-                           lastRect.Top != windowRect.Top || 
-                           lastRect.Right != windowRect.Right || 
-                           lastRect.Bottom != windowRect.Bottom;
-            }
-            else
-            {
-                hasMoved = true;
+                hasMoved = storedRect.Left != windowRect.Left ||
+                           storedRect.Top != windowRect.Top ||
+                           storedRect.Right != windowRect.Right ||
+                           storedRect.Bottom != windowRect.Bottom;
             }
 
             // Update the last known position
             _lastWindowPositions[hwnd] = windowRect;
 
-            // If the window has moved, notify listeners
             if (hasMoved)
             {
-                WindowMovedEventArgs movedArgs = new WindowMovedEventArgs
+                var movedArgs = new WindowMovedEventArgs
                 {
                     WindowHandle = hwnd,
                     WindowTitle = windowTitle,
                     WindowRect = windowRect
                 };
-                
+
                 WindowMoved?.Invoke(this, movedArgs);
             }
         }
@@ -323,9 +336,9 @@ namespace ScreenRegionProtector.Services
         private void CleanupInvalidWindowHandles()
         {
             if (_disposed) return;
-            
-            List<IntPtr> invalidHandles = new List<IntPtr>();
-            
+
+            // Reuse a single list to hold invalid handles
+            var invalidHandles = new List<IntPtr>(_lastWindowPositions.Count);
             foreach (var handle in _lastWindowPositions.Keys)
             {
                 if (!NativeMethods.IsWindow(handle))
@@ -333,16 +346,16 @@ namespace ScreenRegionProtector.Services
                     invalidHandles.Add(handle);
                 }
             }
-            
-            foreach (var handle in invalidHandles)
+            for (int i = 0; i < invalidHandles.Count; i++)
             {
-                _lastWindowPositions.Remove(handle);
+                _lastWindowPositions.Remove(invalidHandles[i]);
             }
         }
 
         private string GetWindowTitle(IntPtr hWnd)
         {
-            StringBuilder titleBuilder = new StringBuilder(256);
+            // Use a fixed-size StringBuilder to reduce allocations
+            StringBuilder titleBuilder = new(256);
             int length = NativeMethods.GetWindowTextLength(hWnd);
             if (length > 0)
             {
@@ -356,31 +369,34 @@ namespace ScreenRegionProtector.Services
         {
             if (string.IsNullOrWhiteSpace(windowTitle))
                 return true;
-                
+
             string className = NativeMethods.GetClassNameFromHandle(windowHandle);
 
-            string[] systemClassNames = {
+            // These arrays are defined as static to avoid recreating them on each call
+            ReadOnlySpan<string> systemClassNames = new[]
+            {
                 "Progman", "WorkerW", "Shell_TrayWnd", "DV2ControlHost",
                 "Windows.UI.Core.CoreWindow", "ApplicationFrameWindow"
             };
-            
+
+            ReadOnlySpan<string> systemTitles = new[]
+            {
+                "Program Manager", "Windows Shell Experience Host",
+                "Task View", "Task Switching", "Start"
+            };
+
             foreach (var systemClass in systemClassNames)
             {
                 if (className.Contains(systemClass))
                     return true;
             }
-            
-            string[] systemTitles = {
-                "Program Manager", "Windows Shell Experience Host",
-                "Task View", "Task Switching", "Start"
-            };
-            
-            foreach (var systemTitle in systemTitles)
+
+            foreach (var sysTitle in systemTitles)
             {
-                if (windowTitle.Contains(systemTitle))
+                if (windowTitle.Contains(sysTitle))
                     return true;
             }
-            
+
             return false;
         }
 
@@ -390,38 +406,33 @@ namespace ScreenRegionProtector.Services
                 return null;
 
             // Calculate window center point
-            System.Drawing.Point centerPoint = new System.Drawing.Point(
+            var centerPoint = new System.Drawing.Point(
                 rect.Left + ((rect.Right - rect.Left) / 2),
                 rect.Top + ((rect.Bottom - rect.Top) / 2)
             );
 
-            // Find the monitor containing the center point
             foreach (Screen screen in Screen.AllScreens)
             {
                 if (screen.Bounds.Contains(centerPoint))
                     return screen;
             }
 
-            // If center point is not on any monitor, return the closest one
+            // Return the closest monitor if no exact match is found
             Screen closestScreen = Screen.PrimaryScreen;
             int minDistance = int.MaxValue;
-
             foreach (Screen screen in Screen.AllScreens)
             {
-                // Calculate distance to screen center
                 int screenCenterX = screen.Bounds.X + (screen.Bounds.Width / 2);
                 int screenCenterY = screen.Bounds.Y + (screen.Bounds.Height / 2);
-                int distanceX = centerPoint.X - screenCenterX;
-                int distanceY = centerPoint.Y - screenCenterY;
-                int distance = (distanceX * distanceX) + (distanceY * distanceY);
-
+                int dx = centerPoint.X - screenCenterX;
+                int dy = centerPoint.Y - screenCenterY;
+                int distance = (dx * dx) + (dy * dy);
                 if (distance < minDistance)
                 {
                     minDistance = distance;
                     closestScreen = screen;
                 }
             }
-
             return closestScreen;
         }
 
@@ -429,7 +440,7 @@ namespace ScreenRegionProtector.Services
         {
             if (_disposed)
                 return;
-                
+
             _disposed = true;
             _monitorTimer.Stop();
             _monitorTimer.Elapsed -= MonitorTimerElapsed;
@@ -499,12 +510,9 @@ namespace ScreenRegionProtector.Services
         [DllImport("user32.dll")]
         public static extern IntPtr GetMessageExtraInfo();
 
-        // Constants
         public const uint SWP_NOZORDER = 0x0004;
         public const uint SWP_NOACTIVATE = 0x0010;
         public const uint WM_LBUTTONUP = 0x0202;
-
-        // Constants for mouse input
         public const int INPUT_MOUSE = 0;
         public const int MOUSEEVENTF_LEFTUP = 0x0004;
 
@@ -515,7 +523,6 @@ namespace ScreenRegionProtector.Services
             public int Top;
             public int Right;
             public int Bottom;
-
             public int Width => Right - Left;
             public int Height => Bottom - Top;
         }
@@ -540,7 +547,7 @@ namespace ScreenRegionProtector.Services
 
         public static string GetClassNameFromHandle(IntPtr hWnd)
         {
-            StringBuilder className = new StringBuilder(256);
+            StringBuilder className = new(256);
             GetClassName(hWnd, className, className.Capacity);
             return className.ToString();
         }
@@ -549,12 +556,11 @@ namespace ScreenRegionProtector.Services
         {
             ReleaseCapture();
             SendMessage(hWnd, WM_LBUTTONUP, IntPtr.Zero, IntPtr.Zero);
-            SimulateMouseLeftButtonUp(); // Also simulate the physical mouse up event
+            SimulateMouseLeftButtonUp();
         }
 
         public static void SimulateMouseLeftButtonUp()
         {
-            // Create an INPUT structure for mouse up
             INPUT[] inputs = new INPUT[1];
             inputs[0].type = INPUT_MOUSE;
             inputs[0].mi.dx = 0;
@@ -563,9 +569,7 @@ namespace ScreenRegionProtector.Services
             inputs[0].mi.dwFlags = MOUSEEVENTF_LEFTUP;
             inputs[0].mi.time = 0;
             inputs[0].mi.dwExtraInfo = GetMessageExtraInfo();
-            
-            // Send the input
             SendInput(1, inputs, Marshal.SizeOf(typeof(INPUT)));
         }
     }
-} 
+}
