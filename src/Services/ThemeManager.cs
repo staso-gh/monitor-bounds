@@ -3,7 +3,7 @@ using System;
 using System.Diagnostics;
 using Microsoft.Win32;
 
-namespace ScreenRegionProtector.Services
+namespace MonitorBounds.Services
 {
     /// <summary>
     /// Manages theme detection and switching for the application.
@@ -103,7 +103,6 @@ namespace ScreenRegionProtector.Services
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"Error detecting system theme: {ex.Message}");
             }
         }
 

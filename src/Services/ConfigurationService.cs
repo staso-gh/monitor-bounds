@@ -4,9 +4,9 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
-using ScreenRegionProtector.Models;
+using MonitorBounds.Models;
 
-namespace ScreenRegionProtector.Services
+namespace MonitorBounds.Services
 {
     // Manages configuration settings for the application.
     public class ConfigurationService
@@ -26,7 +26,7 @@ namespace ScreenRegionProtector.Services
         {
             // Get the local application data directory.
             string appDataPath = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-            string appFolderPath = Path.Combine(appDataPath, "ScreenRegionProtector");
+            string appFolderPath = Path.Combine(appDataPath, "MonitorBounds");
 
             // Ensure the directory exists. If not, attempt creation; if that fails, fallback to temp.
             if (!Directory.Exists(appFolderPath))
@@ -37,7 +37,7 @@ namespace ScreenRegionProtector.Services
                 }
                 catch
                 {
-                    appFolderPath = Path.Combine(Path.GetTempPath(), "ScreenRegionProtector");
+                    appFolderPath = Path.Combine(Path.GetTempPath(), "MonitorBounds");
                     Directory.CreateDirectory(appFolderPath);
                 }
             }

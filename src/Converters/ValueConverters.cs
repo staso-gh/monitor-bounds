@@ -5,7 +5,7 @@ using System.Windows.Data;
 using System.Windows.Media;
 using System.Windows.Input;
 
-namespace ScreenRegionProtector.Converters
+namespace MonitorBounds.Converters
 {
     // Helper for common converter operations
     internal static class ConverterHelper

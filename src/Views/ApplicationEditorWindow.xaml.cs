@@ -6,9 +6,9 @@ using System.Windows.Forms;
 using System.Windows.Media;
 using System.Drawing;
 using System.Runtime.InteropServices;
-using ScreenRegionProtector.Models;
+using MonitorBounds.Models;
 
-namespace ScreenRegionProtector.Views
+namespace MonitorBounds.Views
 {
     // Interaction logic for ApplicationEditorWindow.xaml
     public partial class ApplicationEditorWindow : Window
@@ -124,13 +124,10 @@ namespace ScreenRegionProtector.Views
         // Handles the OK button click
         private void OkButton_Click(object sender, RoutedEventArgs e)
         {
-            System.Diagnostics.Debug.WriteLine("===== ApplicationEditorWindow.OkButton_Click - STARTING =====");
-            System.Diagnostics.Debug.WriteLine($"Application before validation: Title='{_application.TitlePattern}', Active={_application.IsActive}, Monitor={_application.RestrictToMonitor}, HashCode={_application.GetHashCode()}");
 
             // Validate input
             if (string.IsNullOrWhiteSpace(_application.TitlePattern))
             {
-                System.Diagnostics.Debug.WriteLine("Validation error: Title pattern is empty");
                 System.Windows.MessageBox.Show("Please enter a title pattern for the application.", "Validation Error", 
                     MessageBoxButton.OK, MessageBoxImage.Error);
                 return;
@@ -140,20 +137,15 @@ namespace ScreenRegionProtector.Views
             if (MonitorComboBox.SelectedIndex >= 0)
             {
                 _application.RestrictToMonitor = MonitorComboBox.SelectedIndex;
-                System.Diagnostics.Debug.WriteLine($"Set RestrictToMonitor to {MonitorComboBox.SelectedIndex}");
             }
             else if (MonitorComboBox.Items.Count > 0)
             {
                 _application.RestrictToMonitor = 0; // Default to first monitor
-                System.Diagnostics.Debug.WriteLine("Set RestrictToMonitor to default (0)");
             }
 
-            System.Diagnostics.Debug.WriteLine($"Final application state: Title='{_application.TitlePattern}', Active={_application.IsActive}, Monitor={_application.RestrictToMonitor}, HashCode={_application.GetHashCode()}");
             
             // Set standard WPF DialogResult
             this.DialogResult = true;
-            System.Diagnostics.Debug.WriteLine("Set DialogResult = true and closing window");
-            System.Diagnostics.Debug.WriteLine("===== ApplicationEditorWindow.OkButton_Click - COMPLETE =====");
             Close();
         }
 
@@ -272,7 +264,7 @@ namespace ScreenRegionProtector.Views
         private void Window_Loaded(object sender, RoutedEventArgs e)
         {
             // Get the app's theme manager
-            var app = System.Windows.Application.Current as ScreenRegionProtector.App;
+            var app = System.Windows.Application.Current as MonitorBounds.App;
             var themeManager = app?.ThemeManager;
             
             if (themeManager != null)

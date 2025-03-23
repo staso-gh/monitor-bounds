@@ -1,4 +1,4 @@
-﻿#nullable enable
+#nullable enable
 using System;
 using System.Configuration;
 using System.Data;
@@ -10,9 +10,9 @@ using System.Windows;
 using System.Windows.Threading;
 using System.Windows.Forms;
 using Microsoft.Win32;
-using ScreenRegionProtector.Services;
+using MonitorBounds.Services;
 
-namespace ScreenRegionProtector
+namespace MonitorBounds
 {
     public partial class App : System.Windows.Application
     {
@@ -76,7 +76,7 @@ namespace ScreenRegionProtector
                 {
                     Visible = true,
                     Icon = trayIcon,
-                    Text = "Screen Region Protector"
+                    Text = "Monitor Bounds"
                 };
 
                 // Create context menu for tray icon
@@ -87,11 +87,9 @@ namespace ScreenRegionProtector
                 _notifyIcon.ContextMenuStrip = contextMenu;
 
                 _notifyIcon.MouseDoubleClick += (s, e) => ToggleWindowVisibility();
-                Debug.WriteLine($"Tray icon created successfully from path: {iconPath}");
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"Failed to create tray icon: {ex.Message}");
                 System.Windows.MessageBox.Show(
                     $"Failed to initialize tray icon: {ex.Message}",
                     "Error",
@@ -111,7 +109,6 @@ namespace ScreenRegionProtector
                 string? iconPath = ResolveIconPath(iconName);
                 if (string.IsNullOrEmpty(iconPath))
                 {
-                    Debug.WriteLine("Failed to find any valid icon file for tray icon update");
                     return;
                 }
 
@@ -121,12 +118,10 @@ namespace ScreenRegionProtector
                     Icon newTrayIcon = new Icon(loadedIcon, SystemInformation.SmallIconSize);
                     _notifyIcon.Icon?.Dispose();
                     _notifyIcon.Icon = newTrayIcon;
-                    Debug.WriteLine($"Tray icon updated successfully from path: {iconPath}");
                 }
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"Failed to update tray icon: {ex.Message}");
             }
         }
 
@@ -306,7 +301,6 @@ namespace ScreenRegionProtector
             {
                 if (!string.IsNullOrEmpty(path) && File.Exists(path))
                 {
-                    Debug.WriteLine($"Found icon file at: {path}");
                     return path;
                 }
             }
@@ -317,15 +311,12 @@ namespace ScreenRegionProtector
             {
                 if (!string.IsNullOrEmpty(path) && File.Exists(path))
                 {
-                    Debug.WriteLine($"Found alternate icon file at: {path}");
                     return path;
                 }
             }
 
-            Debug.WriteLine($"Icon '{iconName}' not found in any of the following paths:");
             foreach (string path in possiblePaths)
             {
-                Debug.WriteLine($"  - {path}");
             }
 
             return null;

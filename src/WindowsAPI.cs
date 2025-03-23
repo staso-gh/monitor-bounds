@@ -2,7 +2,7 @@ using System;
 using System.Runtime.InteropServices;
 using System.Collections.Generic;
 
-namespace ScreenRegionProtector
+namespace MonitorBounds
 {
     
     // Provides access to Windows API functions for window management and monitoring
@@ -217,7 +217,6 @@ namespace ScreenRegionProtector
             if (length == 0)
             {
                 int error = Marshal.GetLastWin32Error();
-                System.Diagnostics.Debug.WriteLine($"Failed to get class name. Error: {error}");
                 return string.Empty;
             }
             

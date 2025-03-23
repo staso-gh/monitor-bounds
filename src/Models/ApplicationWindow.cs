@@ -4,8 +4,12 @@ using System.Runtime.CompilerServices;
 using System.Text.Json.Serialization;
 using System.IO.Enumeration;
 using System.Text.RegularExpressions;
+using System.Collections.Generic;
+using System.Drawing;
+using System.Text;
+using System.Windows.Media;
 
-namespace ScreenRegionProtector.Models
+namespace MonitorBounds.Models
 {
     // Represents an application window that is tracked by the system
     public class ApplicationWindow : INotifyPropertyChanged, IEquatable<ApplicationWindow>
@@ -95,7 +99,6 @@ namespace ScreenRegionProtector.Models
             // Log matches for debugging
             if (matches)
             {
-                System.Diagnostics.Debug.WriteLine($"Window '{windowTitle}' matched pattern '{TitlePattern}'");
             }
 
             return matches;

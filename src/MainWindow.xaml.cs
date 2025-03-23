@@ -1,4 +1,5 @@
-﻿using System;
+#nullable enable
+using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
@@ -15,12 +16,14 @@ using System.Windows.Media.Imaging;
 using System.Windows.Navigation;
 using System.Windows.Shapes;
 using System.Windows.Threading;
-using ScreenRegionProtector.Converters;
-using ScreenRegionProtector.Models;
-using ScreenRegionProtector.Services;
-using ScreenRegionProtector.ViewModels;
+using System.Xml.Serialization;
+using Microsoft.Win32;
+using MonitorBounds.Converters;
+using MonitorBounds.Models;
+using MonitorBounds.Services;
+using MonitorBounds.ViewModels;
 
-namespace ScreenRegionProtector
+namespace MonitorBounds
 {
     public partial class MainWindow : Window, IDisposable
     {
@@ -569,7 +572,6 @@ namespace ScreenRegionProtector
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"Error in context menu handling: {ex.Message}");
             }
         }
 

@@ -2,9 +2,9 @@ using System;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Forms; // For ColorDialog
-using ScreenRegionProtector.Models;
+using MonitorBounds.Models;
 
-namespace ScreenRegionProtector.Views
+namespace MonitorBounds.Views
 {
     
     // Interaction logic for RegionEditorWindow.xaml

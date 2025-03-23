@@ -3,14 +3,16 @@ using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Windows;
 using System.Windows.Media;
+using System.Xml.Serialization;
+using System.Drawing;
 
-namespace ScreenRegionProtector.Models
+namespace MonitorBounds.Models
 {
     public class ScreenRegion : INotifyPropertyChanged
     {
         private string _name = "Protected Region";
         private int _left, _top, _width, _height;
-        private Color _highlightColor = Colors.Red;
+        private System.Windows.Media.Color _highlightColor = Colors.Red;
         private double _highlightOpacity = 0.2;
         private bool _isActive = true;
 
@@ -49,7 +51,7 @@ namespace ScreenRegionProtector.Models
         public int Right => _left + _width;
         public int Bottom => _top + _height;
 
-        public Color HighlightColor
+        public System.Windows.Media.Color HighlightColor
         {
             get => _highlightColor;
             set => SetProperty(ref _highlightColor, value);
@@ -67,7 +69,7 @@ namespace ScreenRegionProtector.Models
             set => SetProperty(ref _isActive, value);
         }
 
-        public bool ContainsPoint(Point point) =>
+        public bool ContainsPoint(System.Windows.Point point) =>
             point.X >= _left && point.X <= Right &&
             point.Y >= _top && point.Y <= Bottom;
 
@@ -75,10 +77,10 @@ namespace ScreenRegionProtector.Models
             rect.Right >= _left && rect.Left <= Right &&
             rect.Bottom >= _top && rect.Top <= Bottom;
 
-        public Point GetSafePosition(WindowsAPI.RECT windowRect)
+        public System.Windows.Point GetSafePosition(WindowsAPI.RECT windowRect)
         {
             if (!IntersectsWith(windowRect))
-                return new Point(windowRect.Left, windowRect.Top);
+                return new System.Windows.Point(windowRect.Left, windowRect.Top);
 
             int leftOverlap = Right - windowRect.Left;
             int rightOverlap = windowRect.Right - _left;
@@ -88,10 +90,10 @@ namespace ScreenRegionProtector.Models
             int minOverlap = Math.Min(Math.Min(leftOverlap, rightOverlap), Math.Min(topOverlap, bottomOverlap));
             const int safetyMargin = 5;
 
-            return minOverlap == leftOverlap ? new Point(Right + safetyMargin, windowRect.Top) :
-                   minOverlap == rightOverlap ? new Point(_left - windowRect.Width - safetyMargin, windowRect.Top) :
-                   minOverlap == topOverlap ? new Point(windowRect.Left, Bottom + safetyMargin) :
-                   new Point(windowRect.Left, _top - windowRect.Height - safetyMargin);
+            return minOverlap == leftOverlap ? new System.Windows.Point(Right + safetyMargin, windowRect.Top) :
+                   minOverlap == rightOverlap ? new System.Windows.Point(_left - windowRect.Width - safetyMargin, windowRect.Top) :
+                   minOverlap == topOverlap ? new System.Windows.Point(windowRect.Left, Bottom + safetyMargin) :
+                   new System.Windows.Point(windowRect.Left, _top - windowRect.Height - safetyMargin);
         }
 
         private void SetProperty<T>(ref T field, T value, [CallerMemberName] string propertyName = null)

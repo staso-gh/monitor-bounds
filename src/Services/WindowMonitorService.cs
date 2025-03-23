@@ -5,12 +5,12 @@ using System.Runtime.InteropServices;
 using System.Windows;
 using System.Threading;
 using System.Timers;
-using ScreenRegionProtector.Models;
+using MonitorBounds.Models;
 using System.Collections.Concurrent;
 using System.Text;
 using System.Windows.Forms;  // Requires reference to System.Windows.Forms
 
-namespace ScreenRegionProtector.Services
+namespace MonitorBounds.Services
 {
     /// <summary>
     /// A simplified service that monitors specified application windows and forces them to remain within a designated monitor's bounds.
